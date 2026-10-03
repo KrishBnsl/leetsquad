@@ -13,7 +13,7 @@ export const DATA_DIR = IS_TURSO ? null : (process.env.DATA_DIR || path.join(roo
 if (DATA_DIR) fs.mkdirSync(DATA_DIR, { recursive: true });
 initKey(DATA_DIR);
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const DDL = `
 CREATE TABLE IF NOT EXISTS users (
   username     TEXT PRIMARY KEY COLLATE NOCASE,
@@ -126,6 +126,42 @@ CREATE TABLE IF NOT EXISTS sync_state (
   forced       INTEGER NOT NULL DEFAULT 0,
   requested_at INTEGER,
   updated_at   INTEGER
+);
+CREATE TABLE IF NOT EXISTS forum_posts (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  author            TEXT NOT NULL COLLATE NOCASE,
+  category          TEXT NOT NULL,
+  title             TEXT NOT NULL,
+  body              TEXT NOT NULL,
+  tags              TEXT NOT NULL DEFAULT '[]',
+  link              TEXT,
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL,
+  last_activity     INTEGER NOT NULL,
+  accepted_reply_id INTEGER,
+  reply_count       INTEGER NOT NULL DEFAULT 0,
+  like_count        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_fp_activity ON forum_posts(last_activity);
+CREATE INDEX IF NOT EXISTS idx_fp_cat ON forum_posts(category, last_activity);
+CREATE INDEX IF NOT EXISTS idx_fp_author ON forum_posts(author);
+CREATE TABLE IF NOT EXISTS forum_replies (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id    INTEGER NOT NULL REFERENCES forum_posts(id) ON DELETE CASCADE,
+  author     TEXT NOT NULL COLLATE NOCASE,
+  body       TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  like_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_fr_post ON forum_replies(post_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_fr_author ON forum_replies(author);
+CREATE TABLE IF NOT EXISTS forum_likes (
+  target     TEXT NOT NULL,
+  target_id  INTEGER NOT NULL,
+  username   TEXT NOT NULL COLLATE NOCASE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (target, target_id, username)
 );
 CREATE TABLE IF NOT EXISTS rate_hits (
   key TEXT NOT NULL,

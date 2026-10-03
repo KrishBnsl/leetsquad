@@ -10,6 +10,7 @@ import * as plat from './platforms.js';
 import { HttpError } from './http-error.js';
 import * as sq from './squads.js';
 import * as act from './activities.js';
+import * as forum from './forum.js';
 
 const REFRESH_COOLDOWN_S = 120;
 const SECURITY_HEADERS = {
@@ -63,10 +64,11 @@ function clientIp(req) {
 }
 // Per-visitor limiter for endpoints that call LeetCode with user-provided credentials.
 // Stored in the database so it holds across serverless instances.
-async function rateLimit(req, max = 12, windowS = 3600) {
-  const key = clientIp(req), t = Math.floor(Date.now() / 1000);
+const rateLimit = (req, max = 12, windowS = 3600) => rateLimitKey(clientIp(req), max, windowS);
+async function rateLimitKey(key, max, windowS = 3600) {
+  const t = Math.floor(Date.now() / 1000);
   const { n } = await db.get('SELECT COUNT(*) AS n FROM rate_hits WHERE key = ? AND ts > ?', key, t - windowS);
-  if (n >= max) throw new HttpError(429, 'Too many attempts — try again a bit later');
+  if (n >= max) throw new HttpError(429, 'You’re doing that a lot — try again a bit later');
   await db.run('INSERT INTO rate_hits (key, ts) VALUES (?,?)', key, t);
   if (Math.random() < 0.03) db.run('DELETE FROM rate_hits WHERE ts < ?', t - 7200).catch(() => {});
 }
@@ -109,6 +111,11 @@ async function verifyOwnership({ username, session, csrf }) {
 function bearer(req) {
   const m = /^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization || '');
   return m ? m[1] : null;
+}
+// Signed-in username, or null (never throws) — for endpoints anyone can read.
+async function optionalAuth(req) {
+  const token = bearer(req);
+  return (token && await sq.userFromToken(token)) || null;
 }
 async function requireAuth(req) {
   const token = bearer(req);
@@ -170,8 +177,12 @@ const routes = [
     const username = await verifyOwnership(creds);
     await sq.releaseOwnership(username);
     // Explicit deletes (no reliance on ON DELETE CASCADE), all in one atomic batch.
-    await db.batch(['sessions', 'squad_members', 'user_links', 'gh_days', 'activities', 'avatars', 'submissions', 'sync_state']
-      .map((t) => [`DELETE FROM ${t} WHERE username = ?`, username]).concat([['DELETE FROM users WHERE username = ?', username]]));
+    await db.batch([
+      ...forum.purgeUserStatements(username),
+      ...['sessions', 'squad_members', 'user_links', 'gh_days', 'activities', 'avatars', 'submissions', 'sync_state']
+        .map((t) => [`DELETE FROM ${t} WHERE username = ?`, username]),
+      ['DELETE FROM users WHERE username = ?', username],
+    ]);
     return { removed: username };
   }],
 
@@ -328,6 +339,46 @@ const routes = [
   ['POST', /^\/api\/activities$/, async (req) => ({ entry: await act.create(await requireAuth(req), await readJson(req)) })],
   ['PUT', /^\/api\/activities\/(\d+)$/, async (req, m) => ({ entry: await act.update(await requireAuth(req), m[1], await readJson(req)) })],
   ['DELETE', /^\/api\/activities\/(\d+)$/, async (req, m) => { await act.remove(await requireAuth(req), m[1]); return { deleted: true }; }],
+
+  /* ----- forum ----- */
+  ['GET', /^\/api\/forum\/posts$/, async (req) => {
+    const q = new URL(req.url, 'http://x').searchParams;
+    return forum.listPosts({ category: q.get('category'), sort: q.get('sort'), q: q.get('q'), page: q.get('page') }, await optionalAuth(req));
+  }],
+  ['POST', /^\/api\/forum\/posts$/, async (req) => {
+    const me = await requireAuth(req);
+    await rateLimitKey(`post:${me}`, 10);
+    return forum.createPost(me, await readJson(req, 20_000));
+  }],
+  ['GET', /^\/api\/forum\/posts\/(\d+)$/, async (req, m) => {
+    const viewer = await optionalAuth(req);
+    return { ...(await forum.getPost(m[1], viewer)), viewer: viewer ? { username: viewer, isAdmin: forum.isAdmin(viewer) } : null };
+  }],
+  ['PUT', /^\/api\/forum\/posts\/(\d+)$/, async (req, m) => {
+    await forum.updatePost(await requireAuth(req), m[1], await readJson(req, 20_000));
+    return { ok: true };
+  }],
+  ['DELETE', /^\/api\/forum\/posts\/(\d+)$/, async (req, m) => { await forum.deletePost(await requireAuth(req), m[1]); return { deleted: true }; }],
+  ['POST', /^\/api\/forum\/posts\/(\d+)\/replies$/, async (req, m) => {
+    const me = await requireAuth(req);
+    await rateLimitKey(`reply:${me}`, 40);
+    return forum.addReply(me, m[1], await readJson(req, 12_000));
+  }],
+  ['POST', /^\/api\/forum\/posts\/(\d+)\/accept$/, async (req, m) => {
+    await forum.acceptReply(await requireAuth(req), m[1], (await readJson(req)).replyId ?? null);
+    return { ok: true };
+  }],
+  ['PUT', /^\/api\/forum\/replies\/(\d+)$/, async (req, m) => {
+    await forum.updateReply(await requireAuth(req), m[1], await readJson(req, 12_000));
+    return { ok: true };
+  }],
+  ['DELETE', /^\/api\/forum\/replies\/(\d+)$/, async (req, m) => { await forum.deleteReply(await requireAuth(req), m[1]); return { deleted: true }; }],
+  ['POST', /^\/api\/forum\/like$/, async (req) => {
+    const me = await requireAuth(req);
+    await rateLimitKey(`like:${me}`, 150);
+    const b = await readJson(req);
+    return forum.toggleLike(me, b.target, b.id);
+  }],
 ];
 
 // Handles /api/* (and /healthz). Returns false for anything else so the caller can serve static files.

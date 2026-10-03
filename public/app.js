@@ -29,6 +29,9 @@ const I = {
   lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  thumb: '<path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
   pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
   trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
@@ -582,7 +585,7 @@ function renderProfile(p) {
         <a class="btn btn-yellow btn-small" href="https://leetcode.com/u/${encodeURIComponent(p.username)}/" target="_blank" rel="noopener">LeetCode ↗</a>
         ${p.links?.codeforces ? `<a class="btn btn-blue btn-small" href="https://codeforces.com/profile/${encodeURIComponent(p.links.codeforces.handle)}" target="_blank" rel="noopener">Codeforces ↗</a>` : ''}
         ${p.links?.github ? `<a class="btn btn-purple btn-small" href="https://github.com/${encodeURIComponent(p.links.github.handle)}" target="_blank" rel="noopener">GitHub ↗</a>` : ''}</div>
-      ${own ? `<button class="btn btn-small" data-act="photo">${icon('camera')} Change photo</button><button class="btn btn-small" data-act="links">${icon('plus')} ${p.codeforces || p.github ? 'Edit' : 'Link'} accounts</button>` : ''}
+      ${own ? `<button class="btn btn-small" data-act="f-share">${icon('message')} Share progress</button><button class="btn btn-small" data-act="photo">${icon('camera')} Change photo</button><button class="btn btn-small" data-act="links">${icon('plus')} ${p.codeforces || p.github ? 'Edit' : 'Link'} accounts</button>` : ''}
       <button class="btn btn-small" id="refresh" ${syncing ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
       <span class="muted" style="font-size:12px">synced ${ago(p.lastSynced)}</span></div>
   </section>${syncMsg}${partial}${err}${cta}
@@ -1170,10 +1173,234 @@ async function logAction(name, el) {
   }
 }
 
+
+/* ---------- forum ---------- */
+const CAT_META = {
+  Doubt: { color: '#ffd0e1', icon: 'help', label: 'Doubts', blurb: 'Stuck on something? Ask.' },
+  Progress: { color: '#c9f7e3', icon: 'trendUp', label: 'Progress', blurb: 'Share what you’ve been doing.' },
+  Feedback: { color: '#fff3b0', icon: 'pencil', label: 'Feedback', blurb: 'Want a second pair of eyes?' },
+  Discussion: { color: '#dbe9ff', icon: 'message', label: 'Discussion', blurb: 'Anything else worth talking about.' },
+};
+const FORUM_SORTS = [['active', 'Latest activity'], ['new', 'Newest'], ['top', 'Most liked'], ['unanswered', 'Unanswered']];
+const forumState = { category: '', sort: 'active', q: '', posts: [], page: 1, hasMore: false };
+let forumCurrent = null; // the post page being viewed: { post, replies, viewer }
+
+// Plain text -> safe HTML: escape everything first, then add ```code blocks```, `inline code`, links and line breaks.
+function renderBody(text) {
+  const pieces = String(text).split('```');
+  return pieces.map((part, i) => {
+    if (i % 2 === 1) {
+      const nl = part.indexOf('\n');
+      const code = nl >= 0 && /^[a-z0-9+#.-]{0,15}$/i.test(part.slice(0, nl).trim()) ? part.slice(nl + 1) : part;
+      return `<pre class="code"><code>${esc(code.replace(/^\n+|\n+$/g, ''))}</code></pre>`;
+    }
+    // the newlines hugging a code block are layout, not content
+    if (i > 0) part = part.replace(/^\n+/, '');
+    if (i < pieces.length - 1) part = part.replace(/\n+$/, '');
+    let h = esc(part).replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    h = h.replace(/\bhttps?:\/\/[^\s<]+/g, (u) => {
+      const clean = u.replace(/[.,;:!?)]+$/, '');
+      return `<a href="${clean}" target="_blank" rel="noopener noreferrer nofollow">${clean}</a>${u.slice(clean.length)}`;
+    });
+    return h.replace(/\n/g, '<br>');
+  }).join('');
+}
+
+const catChip = (c) => `<span class="chip cat" style="background:${CAT_META[c]?.color || '#eee'}">${icon(CAT_META[c]?.icon || 'message')} ${esc(c)}</span>`;
+const person = (x) => `<span class="fperson">${avatar({ username: x.author, avatar: x.avatar }, 'mini')}<b>${esc(x.name || x.author)}</b><span class="muted">@${esc(x.author)}</span></span>`;
+
+function postCard(p) {
+  return `<a class="card fpost" href="/forum/${p.id}" data-link>
+    <div class="fstat"><b>${p.likeCount}</b><span>likes</span></div>
+    <div class="fstat${p.solved ? ' ok' : p.replyCount ? ' has' : ''}"><b>${p.solved ? icon('check') : p.replyCount}</b><span>${p.solved ? 'solved' : p.replyCount === 1 ? 'reply' : 'replies'}</span></div>
+    <div class="fmain"><div class="ftitle">${esc(p.title)}</div>
+      ${p.excerpt ? `<div class="fexcerpt">${esc(p.excerpt.replace(/```[a-z0-9+#.-]*\n?/gi, '').replace(/\s+/g, ' ').slice(0, 150))}</div>` : ''}
+      <div class="fmeta">${catChip(p.category)}${p.tags.map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}
+        <span class="fwho">${person(p)} · ${ago(p.lastActivity)}</span></div></div></a>`;
+}
+
+function renderForumList() {
+  const list = $('#flist');
+  if (!list) return;
+  list.innerHTML = forumState.posts.length ? forumState.posts.map(postCard).join('')
+    : `<div class="card empty"><span class="big">${icon('message')}</span><h3>${forumState.q || forumState.category ? 'Nothing matches that' : 'No posts yet'}</h3>
+        <p class="muted">${forumState.q || forumState.category ? 'Try a different filter or search.' : 'Be the first — ask a doubt or share how your week went.'}</p></div>`;
+  $('#fmore').innerHTML = forumState.hasMore ? '<button class="btn btn-yellow" data-act="f-more">Load more</button>' : '';
+}
+
+async function loadForum(append = false) {
+  const q = new URLSearchParams({ category: forumState.category, sort: forumState.sort, q: forumState.q, page: append ? forumState.page + 1 : 1 });
+  try {
+    const d = await api(`/api/forum/posts?${q}`);
+    forumState.posts = append ? forumState.posts.concat(d.posts) : d.posts;
+    forumState.page = d.page; forumState.hasMore = d.hasMore;
+    renderForumList();
+  } catch (e) { const l = $('#flist'); if (l) l.innerHTML = `<div class="card empty"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
+}
+
+function forumPage() {
+  const tabs = [['', 'All'], ...Object.entries(CAT_META).map(([k, v]) => [k, v.label])];
+  app.innerHTML = `<section class="hero"><h1>The <span class="hl">forum</span></h1>
+    <p>Ask doubts, share your progress, get feedback. Be kind — everyone here is learning.</p>
+    <div class="stats-strip"><button class="btn btn-pink" data-act="f-new">${icon('plus')} New post</button></div></section>
+    <div class="tabrow" style="margin-top:20px"><div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" data-fcat="${k}" aria-selected="${k === forumState.category}">${l}</button>`).join('')}</div>
+      <div class="forumtools"><input type="search" id="fq" placeholder="Search posts…" value="${esc(forumState.q)}" aria-label="Search posts" maxlength="60">
+        <select id="fsort" aria-label="Sort">${FORUM_SORTS.map(([k, l]) => `<option value="${k}"${k === forumState.sort ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    <div id="flist"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div><div id="fmore" style="text-align:center;margin-top:16px"></div>`;
+  let t;
+  $('#fq').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { forumState.q = e.target.value.trim(); loadForum(); }, 350); });
+  $('#fsort').addEventListener('change', (e) => { forumState.sort = e.target.value; loadForum(); });
+  loadForum();
+}
+
+/* ----- single post ----- */
+const canModerate = (v, author) => v && (v.isAdmin || v.username.toLowerCase() === author.toLowerCase());
+const likeBtn = (target, id, count, liked, own) =>
+  `<button class="likebtn${liked ? ' on' : ''}" data-act="f-like" data-target="${target}" data-id="${id}" aria-pressed="${liked}" ${own ? 'disabled title="You can’t like your own post"' : ''}>${icon('thumb')} <span>${count}</span></button>`;
+
+function renderForumPost(d) {
+  forumCurrent = d;
+  const { post: p, replies, viewer } = d;
+  const mine = viewer && viewer.username.toLowerCase() === p.author.toLowerCase();
+  const replyHtml = replies.map((r) => {
+    const rMine = viewer && viewer.username.toLowerCase() === r.author.toLowerCase();
+    return `<article class="card freply${r.accepted ? ' accepted' : ''}" id="r${r.id}">
+      ${r.accepted ? `<div class="accbadge">${icon('check')} Accepted answer</div>` : ''}
+      <div class="fby"><a href="/u/${encodeURIComponent(r.author)}" data-link>${person(r)}</a><span class="muted">${ago(r.createdAt)}${r.updatedAt > r.createdAt + 60 ? ' · edited' : ''}</span></div>
+      <div class="fbody">${renderBody(r.body)}</div>
+      <div class="factions">${likeBtn('reply', r.id, r.likeCount, r.liked, rMine)}
+        ${mine && p.category === 'Doubt' ? `<button class="btn btn-small ${r.accepted ? 'btn-ghost' : 'btn-mint'}" data-act="f-accept" data-reply="${r.accepted ? '' : r.id}">${icon('check')} ${r.accepted ? 'Unaccept' : 'Accept answer'}</button>` : ''}
+        ${rMine ? `<button class="iconbtn" data-act="f-edit-reply" data-id="${r.id}" aria-label="Edit reply" title="Edit">${icon('pencil')}</button>` : ''}
+        ${canModerate(viewer, r.author) ? `<button class="iconbtn" data-act="f-del-reply" data-id="${r.id}" aria-label="Delete reply" title="Delete">${icon('trash')}</button>` : ''}</div></article>`;
+  }).join('');
+
+  app.innerHTML = `<a class="back" href="/forum" data-link>← Forum</a>
+    <article class="card fpostfull">
+      <div class="fhead">${catChip(p.category)}${p.solved ? `<span class="chip st-active">${icon('check')} Solved</span>` : ''}</div>
+      <h1 class="ptitle">${esc(p.title)}</h1>
+      <div class="fby"><a href="/u/${encodeURIComponent(p.author)}" data-link>${person(p)}</a><span class="muted">${ago(p.createdAt)}${p.updatedAt > p.createdAt + 60 ? ' · edited' : ''}</span></div>
+      <div class="fbody">${renderBody(p.body)}</div>
+      ${p.link ? `<p><a class="chip" href="${esc(p.link)}" target="_blank" rel="noopener noreferrer nofollow">${icon('external')} ${esc(p.link.replace(/^https?:\/\//, '').slice(0, 60))}</a></p>` : ''}
+      ${p.tags.length ? `<div class="chips">${p.tags.map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}</div>` : ''}
+      <div class="factions">${likeBtn('post', p.id, p.likeCount, p.liked, mine)}
+        ${mine ? `<button class="iconbtn" data-act="f-edit-post" aria-label="Edit post" title="Edit">${icon('pencil')}</button>` : ''}
+        ${canModerate(viewer, p.author) ? `<button class="iconbtn" data-act="f-del-post" aria-label="Delete post" title="Delete">${icon('trash')}</button>` : ''}</div>
+    </article>
+    <div class="sec-head" style="margin-top:26px"><h2>${hi('message', '#dbe9ff')} ${plural(replies.length, 'reply').replace(/^0 replies$/, 'No replies yet')}</h2></div>
+    <div class="replies">${replyHtml}</div>
+    <section class="card composer"><h2>Your reply</h2>${viewer
+      ? `<form id="reply-form"><textarea name="body" rows="5" maxlength="3000" required placeholder="Share what you know. Wrap code in triple backticks."></textarea>
+         <div class="err" hidden></div><div class="btns"><button class="btn btn-pink">Post reply</button></div></form>`
+      : `<p class="muted">Sign in with your LeetCode account to reply.</p><button class="btn btn-pink" data-join data-title="Sign in" >Sign in</button>`}</section>`;
+
+  $('#reply-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('.btn-pink'), err = e.target.querySelector('.err');
+    btn.disabled = true; err.hidden = true;
+    try { await api(`/api/forum/posts/${p.id}/replies`, { method: 'POST', body: { body: e.target.elements.body.value } }); toast('Reply posted'); forumPostPage(p.id, true); }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+  });
+}
+
+async function forumPostPage(id, keepScroll = false) {
+  if (!keepScroll) app.innerHTML = '<div class="skeleton"></div>'.repeat(3);
+  try {
+    const d = await api(`/api/forum/posts/${id}`);
+    if (location.pathname !== `/forum/${id}`) return;
+    document.title = `${d.post.title} · LeetSquad`;
+    renderForumPost(d);
+  } catch (e) {
+    app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/forum" data-link>Back to the forum</a></div>`;
+  }
+}
+
+/* ----- composer / editors ----- */
+function openPostModal(post = null, prefill = null) {
+  const start = post || prefill || {};
+  let cat = start.category || 'Doubt';
+  const picked = new Set(start.tags || []);
+  const { close, el } = showModal(`<h2>${post ? 'Edit post' : 'New post'}</h2>
+    <form autocomplete="off" id="post-form">
+      <div class="field"><label>What kind of post?</label><div class="topic-pick catpick">${Object.entries(CAT_META).map(([k, v]) =>
+        `<button type="button" class="chip tp" data-cat="${k}" style="--c:${v.color}" aria-pressed="${k === cat}">${icon(v.icon)} ${k}</button>`).join('')}</div>
+        <small id="cat-hint" class="muted"></small></div>
+      <div class="field"><label for="p-title">Title</label><input id="p-title" name="title" required minlength="3" maxlength="120" placeholder="e.g. Why does my DP solution TLE on test 40?" value="${esc(start.title || '')}"></div>
+      <div class="field"><label for="p-body">Details</label><textarea id="p-body" name="body" rows="8" required maxlength="5000" placeholder="Explain what you tried. Tip: wrap code in triple backticks.">${esc(start.body || '')}</textarea></div>
+      <div class="field"><label>Topics <em>(optional, up to 5)</em></label><div class="topic-pick">${TOPICS.map((t) =>
+        `<button type="button" class="chip tp" data-tag="${esc(t)}" aria-pressed="${picked.has(t)}">${esc(t)}</button>`).join('')}</div></div>
+      <div class="field"><label for="p-link">Related link <em>(optional — problem, repo, submission)</em></label><input id="p-link" name="link" maxlength="300" placeholder="leetcode.com/problems/…" value="${esc(start.link || '')}"></div>
+      <div class="err" hidden></div>
+      <div class="btns"><button type="button" class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-pink" id="p-go">${post ? 'Save' : 'Post'}</button></div></form>`, 'wide');
+  const hint = () => { el.querySelector('#cat-hint').textContent = CAT_META[cat].blurb; };
+  hint();
+  el.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => {
+    cat = b.dataset.cat; el.querySelectorAll('[data-cat]').forEach((x) => x.setAttribute('aria-pressed', x === b)); hint();
+  }));
+  el.querySelectorAll('[data-tag]').forEach((b) => b.addEventListener('click', () => {
+    const t = b.dataset.tag;
+    if (picked.has(t)) picked.delete(t); else if (picked.size < 5) picked.add(t); else return toast('Up to 5 topics');
+    b.setAttribute('aria-pressed', picked.has(t));
+  }));
+  el.querySelector('#p-title').focus();
+  el.querySelector('#post-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = el.querySelector('#p-go'), err = el.querySelector('.err'), f = e.target.elements;
+    btn.disabled = true; err.hidden = true;
+    const body = { category: cat, title: f.title.value, body: f.body.value, tags: [...picked], link: f.link.value };
+    try {
+      if (post) { await api(`/api/forum/posts/${post.id}`, { method: 'PUT', body }); close(); toast('Post updated'); forumPostPage(post.id, true); }
+      else { const r = await api('/api/forum/posts', { method: 'POST', body }); close(); confetti(); toast('Posted!'); navigate(`/forum/${r.id}`); }
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+  });
+}
+
+function openReplyEditor(reply) {
+  const { close, el } = showModal(`<h2>Edit reply</h2><form id="re-form"><div class="field"><textarea name="body" rows="7" maxlength="3000" required>${esc(reply.body)}</textarea></div>
+    <div class="err" hidden></div><div class="btns"><button type="button" class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-pink">Save</button></div></form>`, 'wide');
+  el.querySelector('textarea').focus();
+  el.querySelector('#re-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = el.querySelector('.err');
+    try { await api(`/api/forum/replies/${reply.id}`, { method: 'PUT', body: { body: e.target.elements.body.value } }); close(); toast('Reply updated'); forumPostPage(forumCurrent.post.id, true); }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  });
+}
+
+async function forumAction(name, el) {
+  const d = forumCurrent;
+  if (name === 'f-new') return needSignIn(() => openPostModal(), 'post in the forum');
+  if (name === 'f-more') return loadForum(true);
+  if (name === 'f-share') {
+    const p = currentProfile;
+    return needSignIn(() => openPostModal(null, {
+      category: 'Progress', title: `My week: ${p.periods.week.count} problems solved`,
+      body: `Last 7 days: ${p.periods.week.count} problems (${p.periods.week.points} pts) · ${p.streak.current}-day streak.\nTotal solved on LeetCode: ${p.totals.all}.\n\nWhat I worked on:\n- `,
+    }), 'post in the forum');
+  }
+  if (name === 'f-like') {
+    return needSignIn(async () => {
+      try {
+        const r = await api('/api/forum/like', { method: 'POST', body: { target: el.dataset.target, id: Number(el.dataset.id) } });
+        el.classList.toggle('on', r.liked); el.setAttribute('aria-pressed', r.liked); el.querySelector('span').textContent = r.count;
+      } catch (e) { toast(e.message); }
+    }, 'like posts');
+  }
+  if (!d) return;
+  if (name === 'f-edit-post') return openPostModal(d.post);
+  if (name === 'f-edit-reply') return openReplyEditor(d.replies.find((r) => String(r.id) === el.dataset.id));
+  const run = async (fn, msg) => { try { await fn(); toast(msg); } catch (e) { toast(e.message); } };
+  if (name === 'f-accept') return run(async () => { await api(`/api/forum/posts/${d.post.id}/accept`, { method: 'POST', body: { replyId: el.dataset.reply ? Number(el.dataset.reply) : null } }); forumPostPage(d.post.id, true); }, el.dataset.reply ? 'Marked as the accepted answer' : 'Answer unaccepted');
+  if (name === 'f-del-post' && await confirmBox('Delete this post?', 'The post and all its replies will be removed.', 'Delete'))
+    return run(async () => { await api(`/api/forum/posts/${d.post.id}`, { method: 'DELETE' }); navigate('/forum'); }, 'Post deleted');
+  if (name === 'f-del-reply' && await confirmBox('Delete this reply?', 'This can’t be undone.', 'Delete'))
+    return run(async () => { await api(`/api/forum/replies/${el.dataset.id}`, { method: 'DELETE' }); forumPostPage(d.post.id, true); }, 'Reply deleted');
+}
+
 /* ---------- nav ---------- */
 function renderNav() {
   const onGroups = /^\/(groups|g\/|join\/)/.test(location.pathname);
-  $('#nav').innerHTML = `<a class="navlink${onGroups ? ' on' : ''}" href="/groups" data-link>${icon('users')} Groups</a>` + (auth.username
+  const onForum = location.pathname.startsWith('/forum');
+  $('#nav').innerHTML = `<a class="navlink${onForum ? ' on' : ''}" href="/forum" data-link>${icon('message')} Forum</a><a class="navlink${onGroups ? ' on' : ''}" href="/groups" data-link>${icon('users')} Groups</a>` + (auth.username
     ? `<a class="mepill" href="/u/${encodeURIComponent(auth.username)}" data-link title="Your profile">${avatar({ username: auth.username, avatar: auth.avatar }, 'mini')}<span class="mename">${esc(auth.username)}</span></a>
        <button class="btn btn-small btn-ghost" data-act="sign-out">Sign out</button>`
     : `<button class="btn btn-pink" data-join data-title="Sign in">Sign in</button>`);
@@ -1192,6 +1419,8 @@ function route() {
   let m;
   const setTitle = (t) => { document.title = t ? `${t} · LeetSquad` : 'LeetSquad'; };
   if ((m = path.match(/^\/u\/([^/]+)\/?$/))) { setTitle(decodeURIComponent(m[1])); profilePage(decodeURIComponent(m[1])); }
+  else if (/^\/forum\/?$/.test(path)) { setTitle('Forum'); forumPage(); }
+  else if ((m = path.match(/^\/forum\/(\d+)\/?$/))) { setTitle('Forum'); forumPostPage(m[1]); }
   else if (/^\/groups\/?$/.test(path)) { setTitle('Groups'); groupsPage(); }
   else if ((m = path.match(/^\/g\/(\d+)\/c\/(\d+)\/?$/))) { setTitle('Challenge'); challengePage(m[1], m[2]); }
   else if ((m = path.match(/^\/g\/(\d+)\/?$/))) { setTitle('Group'); groupPage(m[1]); }
@@ -1203,6 +1432,8 @@ document.addEventListener('click', (e) => {
   if (a && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) { e.preventDefault(); navigate(a.getAttribute('href')); return; }
   const t = e.target.closest('[data-period]');
   if (t) { period = t.dataset.period; if (rerender) rerender(); return; }
+  const fc = e.target.closest('[data-fcat]');
+  if (fc) { forumState.category = fc.dataset.fcat; document.querySelectorAll('[data-fcat]').forEach((b) => b.setAttribute('aria-selected', b === fc)); loadForum(); return; }
   const sc = e.target.closest('[data-source]');
   if (sc) { source = sc.dataset.source; if (rerender) rerender(); return; }
   const pt = e.target.closest('[data-ptab]');
@@ -1224,6 +1455,7 @@ document.addEventListener('click', (e) => {
     setAuth(null, null); toast('Signed out'); route();
   } else if (name === 'photo') { if (currentProfile && ownsProfile(currentProfile)) openPhotoModal(currentProfile); }
   else if (name === 'links') { e.preventDefault(); if (currentProfile && ownsProfile(currentProfile)) openLinksModal(currentProfile); }
+  else if (name.startsWith('f-')) forumAction(name, act);
   else if (name.startsWith('log-')) logAction(name, act);
   else groupAction(name, act);
 });

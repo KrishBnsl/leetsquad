@@ -58,6 +58,7 @@ Import the repo at vercel.com/new (framework: *Other*; no build command). Add en
 | `SECRET_KEY_HEX` | from step 2 |
 | `TZ_NAME` | e.g. `Asia/Kolkata` (day boundary; default UTC) |
 | `CLIST_USERNAME`, `CLIST_API_KEY` | optional, problem ratings from clist.by |
+| `ADMIN_USERS` | optional, comma-separated LeetCode usernames allowed to moderate the forum |
 
 ### 5. GitHub Actions (the background worker)
 Repo → Settings → Secrets and variables → Actions. Add **secrets** `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`,
@@ -88,6 +89,11 @@ with *Actions: Read and write*.
 - **Scoring** — per solved problem by rating when known (≤1200 → 1 … >2700 → 10), else Easy/Medium/Hard ≈ 1/3/6.
   **Overall** = LeetCode + Codeforces points; GitHub has its own tab. Ratings come from clist.by when configured
   (create a free account, copy the key from <https://clist.by/api/v4/doc/>); Codeforces falls back to its own API.
+- **Forum** (`/forum`) — anyone can read; posting, replying and liking need a signed-in (LeetCode-verified) account.
+  Post types: Doubt (the asker can accept one reply as the answer), Progress, Feedback, Discussion; optional topic tags and a
+  related link; replies, likes, search, sorting, and ```code blocks```. Authors edit/delete their own content. Set
+  `ADMIN_USERS=name1,name2` (Vercel env var, or `.env` locally) to let those accounts delete anyone's posts. Spam limits:
+  10 posts / 40 replies / 150 likes per account per hour. Deleting your account removes your posts and replies.
 - **Groups & challenges** — private leaderboards by invite code; challenges with total/min-Easy/Medium/Hard, topics,
   platforms and dates.
 - Codeforces/GitHub handles are **not verified** as belonging to whoever links them.

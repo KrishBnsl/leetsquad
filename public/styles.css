@@ -395,3 +395,36 @@ a.crow:hover { background: #fff0f6; }
 .cfhead .bio { margin: 2px 0 10px; max-width: 70ch; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .cfhead .cfrating { align-self: center; }
 @media (max-width: 700px) { .cfhead { grid-template-columns: auto 1fr; } .cfhead .cfrating { grid-column: 1 / -1; text-align: left; } }
+
+/* ---------- forum ---------- */
+.forumtools { display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; align-items: flex-start; }
+.forumtools input, .forumtools select { font: 600 15px var(--body); padding: 9px 14px; border: 2.5px solid var(--ink); border-radius: 14px; background: #fff; color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+.forumtools input { width: 220px; } .forumtools input:focus, .forumtools select:focus { outline: 3px solid var(--blue); outline-offset: 2px; }
+#flist { display: grid; gap: 14px; margin-top: 6px; }
+.fpost { display: grid; grid-template-columns: 70px 70px 1fr; gap: 14px; align-items: center; text-decoration: none; padding: 14px 18px; transition: transform .15s, box-shadow .15s; }
+.fpost:hover { transform: translate(-2px,-3px) rotate(-.3deg); box-shadow: 6px 7px 0 var(--ink); }
+.fstat { text-align: center; border: 2.5px solid var(--ink); border-radius: 14px; padding: 6px 4px; background: #fff; }
+.fstat b { display: block; font: 700 22px var(--display); line-height: 1.1; } .fstat span { font-size: 11.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.fstat.has { background: #fff3b0; } .fstat.ok { background: var(--mint); } .fstat .ic { width: 22px; height: 22px; }
+.ftitle { font: 600 20px/1.25 var(--display); } .fexcerpt { color: var(--muted); font-size: 14px; margin: 3px 0 6px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.fmeta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.fwho { margin-left: auto; font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.fperson { display: inline-flex; align-items: center; gap: 6px; } .fperson b { color: var(--ink); } .fperson .avatar.mini { width: 24px; height: 24px; font-size: 11px; border-width: 2px; }
+.chip.cat .ic { width: 13px; height: 13px; }
+@media (max-width: 640px) { .fpost { grid-template-columns: 56px 1fr; } .fpost .fstat:nth-child(2) { display: none; } .forumtools { margin-left: 0; width: 100%; } .forumtools input { flex: 1; width: auto; } .fwho { margin-left: 0; width: 100%; } }
+.fpostfull { display: grid; gap: 12px; } .ptitle { font-size: clamp(26px, 4vw, 36px); }
+.fhead { display: flex; gap: 8px; flex-wrap: wrap; } .fby { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 14px; } .fby a { text-decoration: none; }
+.fbody { font-size: 16px; line-height: 1.6; word-break: break-word; overflow-wrap: anywhere; }
+.fbody a { color: var(--blue); text-decoration: underline; } .fbody code { background: #efe6ff; border-radius: 6px; padding: 1px 6px; font-size: .92em; }
+pre.code { background: #1d1b3a; color: #f4efff; border-radius: 14px; padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.5; margin: 10px 0; border: 2.5px solid var(--ink); }
+pre.code code { background: none; padding: 0; color: inherit; }
+.factions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.likebtn { display: inline-flex; align-items: center; gap: 6px; font: 700 15px var(--display); padding: 6px 14px; border: 2.5px solid var(--ink); border-radius: 999px; background: #fff; cursor: pointer; color: var(--ink); }
+.likebtn:hover:not([disabled]) { background: #ffeaf2; } .likebtn.on { background: var(--pink); } .likebtn[disabled] { opacity: .5; cursor: not-allowed; } .likebtn .ic { width: 16px; height: 16px; }
+.replies { display: grid; gap: 14px; margin-bottom: 22px; }
+.freply { display: grid; gap: 10px; } .freply.accepted { border-color: #118a5e; box-shadow: 4px 4px 0 #118a5e; background: #f1fdf7; }
+.accbadge { justify-self: start; background: var(--mint); border: 2px solid var(--ink); border-radius: 999px; padding: 2px 12px; font: 700 13px var(--display); } .accbadge .ic { width: 14px; height: 14px; }
+.composer { margin-top: 8px; } .composer h2 { font-size: 22px; margin-bottom: 10px; }
+.composer textarea, .modal textarea { width: 100%; font: 600 15px var(--body); padding: 10px 14px; border: 2.5px solid var(--ink); border-radius: 12px; background: #fffdf7; color: var(--ink); resize: vertical; }
+.composer textarea:focus, .modal textarea:focus { outline: none; box-shadow: 3px 3px 0 var(--blue); }
+.composer .btns { margin-top: 12px; display: flex; justify-content: flex-end; }
