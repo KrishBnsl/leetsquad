@@ -21,6 +21,14 @@
       "destination": "/api"
     },
     {
+      "source": "/join/:code",
+      "destination": "/api/share?kind=join&v=:code"
+    },
+    {
+      "source": "/s/:id(\\d+)",
+      "destination": "/api/share?kind=squad&v=:id"
+    },
+    {
       "source": "/((?!api/)(?!.*\\.[a-zA-Z0-9]+$).*)",
       "destination": "/index.html"
     }
