@@ -103,8 +103,16 @@ with *Actions: Read and write*.
   answers, likes, new squad posts, challenge threads and new challenges. Opening a post or a squad's Discussion tab marks
   its notifications read; unread counts show on the bell and on each squad. The badge refreshes about once a minute
   (no live push). Old notifications are pruned after 60 days.
-- **Squads & challenges** — private leaderboards by invite code; challenges with total/min-Easy/Medium/Hard, topics,
-  platforms and dates.
+- **Squads** — a leaderboard, challenges and discussion for a group of friends. The **Squads** page is a directory:
+  search by name, tagline, about text or topic; filter by join policy and topic; sort by members, activity, newest or A–Z.
+  - **Squad card** — the owner writes a tagline, *about*, *who it's for*, rules, up to 5 topics and picks a colour. Clicking a
+    squad in the directory opens its card with the right join button.
+  - **Join policies** (owner's choice, in the squad's *Settings* tab): **Open** (join instantly), **By request** (the owner
+    approves or declines; declined people can ask again after 3 days) or **Invite only**. Squads only appear in the directory
+    if the owner **lists** them — unlisted squads are invite-only and invisible to outsiders. An invite code always works,
+    whatever the policy. Existing squads start unlisted and invite-only.
+  - Owners are notified of requests and new members; requesters are told the outcome.
+  - **Challenges** — total problems, minimum Easy/Medium/Hard, topics, platforms and dates.
 - Codeforces/GitHub handles are **not verified** as belonging to whoever links them.
 
 Env vars: see `.env.example`.

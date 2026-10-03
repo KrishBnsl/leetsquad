@@ -13,7 +13,7 @@ export const DATA_DIR = IS_TURSO ? null : (process.env.DATA_DIR || path.join(roo
 if (DATA_DIR) fs.mkdirSync(DATA_DIR, { recursive: true });
 initKey(DATA_DIR);
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const DDL = `
 CREATE TABLE IF NOT EXISTS users (
   username     TEXT PRIMARY KEY COLLATE NOCASE,
@@ -59,8 +59,28 @@ CREATE TABLE IF NOT EXISTS squads (
   name       TEXT NOT NULL,
   code       TEXT NOT NULL UNIQUE,
   owner      TEXT NOT NULL COLLATE NOCASE,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  tagline    TEXT,
+  about      TEXT,
+  audience   TEXT,
+  rules      TEXT,
+  tags       TEXT NOT NULL DEFAULT '[]',
+  join_mode  TEXT NOT NULL DEFAULT 'invite',
+  listed     INTEGER NOT NULL DEFAULT 0,
+  color      TEXT NOT NULL DEFAULT 'pink'
 );
+CREATE INDEX IF NOT EXISTS idx_squads_listed ON squads(listed, created_at);
+CREATE TABLE IF NOT EXISTS squad_requests (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  squad_id   INTEGER NOT NULL,
+  username   TEXT NOT NULL COLLATE NOCASE,
+  message    TEXT,
+  status     TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER,
+  UNIQUE (squad_id, username)
+);
+CREATE INDEX IF NOT EXISTS idx_sr_squad ON squad_requests(squad_id, status);
 CREATE TABLE IF NOT EXISTS squad_members (
   squad_id  INTEGER NOT NULL REFERENCES squads(id) ON DELETE CASCADE,
   username  TEXT NOT NULL COLLATE NOCASE REFERENCES users(username) ON DELETE CASCADE,
@@ -242,6 +262,12 @@ async function ensureSchema() {
   const alters = [];
   if (await hasTable('submissions') && !(await cols('submissions')).includes('platform')) alters.push("ALTER TABLE submissions ADD COLUMN platform TEXT NOT NULL DEFAULT 'leetcode'");
   if (await hasTable('questions') && !(await cols('questions')).includes('rating')) alters.push('ALTER TABLE questions ADD COLUMN rating INTEGER');
+  if (await hasTable('squads')) {
+    const sc = await cols('squads');
+    for (const [name, def] of [['tagline', 'TEXT'], ['about', 'TEXT'], ['audience', 'TEXT'], ['rules', 'TEXT'], ['tags', "TEXT NOT NULL DEFAULT '[]'"],
+      ['join_mode', "TEXT NOT NULL DEFAULT 'invite'"], ['listed', 'INTEGER NOT NULL DEFAULT 0'], ['color', "TEXT NOT NULL DEFAULT 'pink'"]])
+      if (!sc.includes(name)) alters.push(`ALTER TABLE squads ADD COLUMN ${name} ${def}`);
+  }
   if (await hasTable('forum_posts')) {
     const fc = await cols('forum_posts');
     if (!fc.includes('squad_id')) alters.push('ALTER TABLE forum_posts ADD COLUMN squad_id INTEGER');

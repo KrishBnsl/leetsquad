@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { db } from './db.js';
 import { HttpError } from './http-error.js';
-import { dayOf, dayAdd, loadDays, leaderboardEntry, avatarFor } from './stats.js';
+import { dayOf, dayAdd, loadDays, leaderboardEntry, avatarFor, avatarUrl } from './stats.js';
 import { notify, unreadBySquad } from './notifications.js';
 
 const SESSION_TTL_S = 90 * 86400;
@@ -46,30 +46,42 @@ export async function requireSquad(id, username) {
   return squad;
 }
 
-const squadView = (s, username, extra = {}) => ({
-  id: s.id, name: s.name, code: s.code, owner: s.owner, createdAt: s.created_at,
-  isOwner: s.owner.toLowerCase() === username.toLowerCase(), ...extra,
+export const SQUAD_TAGS = ['Beginner friendly', 'Intermediate', 'Advanced', 'Interview prep', 'Competitive programming', 'Weekly challenges',
+  'Casual', 'Hardcore', 'Students', 'Working professionals', 'Study group', 'LeetCode', 'Codeforces', 'DSA', 'System design'];
+export const SQUAD_COLORS = ['pink', 'yellow', 'mint', 'blue', 'purple', 'orange'];
+const JOIN_MODES = ['open', 'request', 'invite'];
+
+export const cardFields = (s) => ({
+  tagline: s.tagline || '', about: s.about || '', audience: s.audience || '', rules: s.rules || '',
+  tags: JSON.parse(s.tags || '[]'), joinMode: s.listed ? s.join_mode : 'invite', listed: !!s.listed, color: s.color || 'pink',
 });
 
-export async function createSquad(name, owner) {
+const squadView = (s, username, extra = {}) => ({
+  id: s.id, name: s.name, code: s.code, owner: s.owner, createdAt: s.created_at,
+  isOwner: s.owner.toLowerCase() === username.toLowerCase(), ...cardFields(s), ...extra,
+});
+
+export async function createSquad(name, owner, opts = {}) {
   name = String(name || '').trim();
   if (!name || name.length > 40) throw new HttpError(400, 'Give your squad a name (max 40 characters)');
+  const listed = opts.listed ? 1 : 0;
+  const joinMode = listed && JOIN_MODES.includes(opts.joinMode) ? opts.joinMode : 'invite'; // unlisted squads are invite-only
   const mine = (await db.get('SELECT COUNT(*) AS n FROM squad_members WHERE username = ?', owner)).n;
   if (mine >= 20) throw new HttpError(400, 'You’re in the maximum number of squads (20)');
   const code = await newCode();
   // One atomic batch: the squad and its first member (the owner).
   await db.batch([
-    ['INSERT INTO squads (name, code, owner, created_at) VALUES (?,?,?,?)', name, code, owner, now()],
+    ['INSERT INTO squads (name, code, owner, created_at, listed, join_mode) VALUES (?,?,?,?,?,?)', name, code, owner, now(), listed, joinMode],
     ['INSERT INTO squad_members (squad_id, username, joined_at) VALUES (last_insert_rowid(), ?, ?)', owner, now()],
   ]);
   return squadView(await db.get('SELECT * FROM squads WHERE code = ?', code), owner);
 }
 
 export async function previewByCode(code) {
-  const s = await db.get(`SELECT s.name, s.owner, (SELECT COUNT(*) FROM squad_members m WHERE m.squad_id = s.id) AS members
+  const s = await db.get(`SELECT s.*, (SELECT COUNT(*) FROM squad_members m WHERE m.squad_id = s.id) AS members
     FROM squads s WHERE s.code = ?`, normalizeCode(code));
   if (!s) throw new HttpError(404, 'That invite code doesn’t match any squad');
-  return { name: s.name, owner: s.owner, members: s.members };
+  return { name: s.name, owner: s.owner, members: s.members, ...cardFields(s) };
 }
 
 export async function joinByCode(code, username) {
@@ -94,7 +106,10 @@ export async function listSquads(username) {
       (SELECT COUNT(*) FROM challenges c WHERE c.squad_id = s.id AND c.start_day <= ? AND c.end_day >= ?) AS active
     FROM squads s JOIN squad_members me ON me.squad_id = s.id WHERE me.username = ? ORDER BY s.created_at DESC`, today, today, username);
   const unread = await unreadBySquad(username);
-  return rows.map((s) => squadView(s, username, { members: s.members, activeChallenges: s.active, unread: unread.get(s.id) || 0 }));
+  const owned = rows.filter((s) => s.owner.toLowerCase() === username.toLowerCase()).map((s) => s.id);
+  const pending = new Map();
+  if (owned.length) for (const r of await db.all(`SELECT squad_id, COUNT(*) AS n FROM squad_requests WHERE status = 'pending' AND squad_id IN (${owned.map(() => '?').join(',')}) GROUP BY squad_id`, ...owned)) pending.set(r.squad_id, r.n);
+  return rows.map((s) => squadView(s, username, { members: s.members, activeChallenges: s.active, unread: unread.get(s.id) || 0, pendingRequests: pending.get(s.id) || 0 }));
 }
 
 export const squadMembers = (squadId) =>
@@ -136,6 +151,7 @@ const dropSquadStatements = (id) => [
   ['DELETE FROM forum_replies WHERE post_id IN (SELECT id FROM forum_posts WHERE squad_id = ?)', id],
   ['DELETE FROM forum_posts WHERE squad_id = ?', id],
   ['DELETE FROM notifications WHERE squad_id = ?', id],
+  ['DELETE FROM squad_requests WHERE squad_id = ?', id],
   ['DELETE FROM challenges WHERE squad_id = ?', id],
   ['DELETE FROM squad_members WHERE squad_id = ?', id],
   ['DELETE FROM squads WHERE id = ?', id],
@@ -299,4 +315,180 @@ export async function challengeSummaries(squad, board, viewer) {
     };
   }));
   return out.sort((a, b) => ORDER[a.status] - ORDER[b.status]);
+}
+
+
+/* ---------- squad cards, directory & join policies ---------- */
+const bad = (m) => { throw new HttpError(400, m); };
+const trimTo = (v, max, label) => {
+  const t = String(v ?? '').trim();
+  if (t.length > max) bad(`${label} can be at most ${max} characters`);
+  return t || null;
+};
+
+export function parseSettings(b) {
+  const name = String(b.name || '').trim();
+  if (!name || name.length > 40) bad('Give your squad a name (max 40 characters)');
+  const tags = [...new Set((Array.isArray(b.tags) ? b.tags : []).map((t) => String(t).trim()).filter(Boolean))];
+  if (tags.length > 5 || tags.some((t) => !SQUAD_TAGS.includes(t))) bad('Pick up to 5 tags from the list');
+  const color = SQUAD_COLORS.includes(b.color) ? b.color : 'pink';
+  const listed = b.listed ? 1 : 0;
+  let joinMode = JOIN_MODES.includes(b.joinMode) ? b.joinMode : 'invite';
+  if (!listed) joinMode = 'invite'; // only listed squads can accept open/request joins
+  return {
+    name, tagline: trimTo(b.tagline, 80, 'The tagline'), about: trimTo(b.about, 600, '“About”'),
+    audience: trimTo(b.audience, 300, '“Who it’s for”'), rules: trimTo(b.rules, 400, 'The rules'), tags, color, listed, joinMode,
+  };
+}
+
+export async function updateSettings(squad, username, body) {
+  assertOwner(squad, username);
+  const p = parseSettings(body);
+  await db.run(`UPDATE squads SET name=?, tagline=?, about=?, audience=?, rules=?, tags=?, color=?, listed=?, join_mode=? WHERE id=?`,
+    p.name, p.tagline, p.about, p.audience, p.rules, JSON.stringify(p.tags), p.color, p.listed, p.joinMode, squad.id);
+}
+
+const likeEsc = (t) => `%${String(t).replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+
+// Up to 4 member avatars per squad, oldest members first.
+async function previewMembers(ids) {
+  const map = new Map();
+  if (!ids.length) return map;
+  const rows = await db.all(`SELECT m.squad_id, m.username, u.real_name, u.avatar, a.updated_at AS custom_at
+    FROM squad_members m JOIN users u ON u.username = m.username LEFT JOIN avatars a ON a.username = m.username
+    WHERE m.squad_id IN (${ids.map(() => '?').join(',')}) ORDER BY m.joined_at`, ...ids);
+  for (const r of rows) {
+    const list = map.get(r.squad_id) || [];
+    if (list.length < 4) list.push({ username: r.username, name: r.real_name || '', avatar: avatarUrl(r.username, r.avatar, r.custom_at) });
+    map.set(r.squad_id, list);
+  }
+  return map;
+}
+
+const SQUAD_STATS = `(SELECT COUNT(*) FROM squad_members m WHERE m.squad_id = s.id) AS members,
+  (SELECT COUNT(*) FROM challenges c WHERE c.squad_id = s.id AND c.start_day <= ? AND c.end_day >= ?) AS active`;
+
+const publicCard = (s, previews, viewer) => ({
+  id: s.id, name: s.name, owner: s.owner, ownerName: s.owner_name || '', createdAt: s.created_at,
+  members: s.members, activeChallenges: s.active, preview: previews.get(s.id) || [], ...cardFields(s),
+  viewer: viewer ? { member: !!s.is_member, request: s.req_status || null, requestAt: s.req_at || null } : null,
+});
+
+// The public directory: only squads whose owner chose to list them.
+export async function directory({ q, mode, tag, sort, page }, viewer) {
+  const today = dayOf(now());
+  const where = ['s.listed = 1'], args = [];
+  if (JOIN_MODES.includes(mode)) { where.push('s.join_mode = ?'); args.push(mode); }
+  if (SQUAD_TAGS.includes(tag)) { where.push('s.tags LIKE ?'); args.push(`%"${tag}"%`); }
+  const term = String(q || '').trim().slice(0, 60);
+  let rank = '', rankArgs = [];
+  if (term) {
+    const l = likeEsc(term);
+    where.push("(s.name LIKE ? ESCAPE '\\' OR s.tagline LIKE ? ESCAPE '\\' OR s.about LIKE ? ESCAPE '\\' OR s.tags LIKE ? ESCAPE '\\')");
+    args.push(l, l, l, l);
+    rank = "CASE WHEN s.name LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, "; // name matches first
+    rankArgs = [l];
+  }
+  const order = sort === 'new' ? 's.created_at DESC' : sort === 'name' ? 's.name COLLATE NOCASE' : sort === 'active' ? 'active DESC, members DESC' : 'members DESC, s.created_at DESC';
+  const pg = Math.max(1, Math.min(200, Number(page) || 1));
+  const SIZE = 12;
+  const rows = await db.all(
+    `SELECT s.*, u.real_name AS owner_name, ${SQUAD_STATS},
+       EXISTS(SELECT 1 FROM squad_members mm WHERE mm.squad_id = s.id AND mm.username = ?) AS is_member,
+       (SELECT r.status FROM squad_requests r WHERE r.squad_id = s.id AND r.username = ?) AS req_status
+     FROM squads s JOIN users u ON u.username = s.owner
+     WHERE ${where.join(' AND ')} ORDER BY ${rank}${order} LIMIT ? OFFSET ?`,
+    today, today, viewer || '', viewer || '', ...args, ...rankArgs, SIZE + 1, (pg - 1) * SIZE);
+  const page_ = rows.slice(0, SIZE);
+  const previews = await previewMembers(page_.map((r) => r.id));
+  return { squads: page_.map((r) => publicCard(r, previews, viewer)), hasMore: rows.length > SIZE, page: pg, tags: SQUAD_TAGS };
+}
+
+// The full card shown to someone who isn't a member yet. Unlisted squads simply don't exist for non-members.
+export async function cardFor(id, viewer) {
+  const today = dayOf(now());
+  const s = await db.get(
+    `SELECT s.*, u.real_name AS owner_name, ${SQUAD_STATS},
+       EXISTS(SELECT 1 FROM squad_members mm WHERE mm.squad_id = s.id AND mm.username = ?) AS is_member,
+       (SELECT r.status FROM squad_requests r WHERE r.squad_id = s.id AND r.username = ?) AS req_status,
+       (SELECT r.decided_at FROM squad_requests r WHERE r.squad_id = s.id AND r.username = ?) AS req_at
+     FROM squads s JOIN users u ON u.username = s.owner WHERE s.id = ?`, today, today, viewer || '', viewer || '', viewer || '', Number(id));
+  if (!s || (!s.listed && !s.is_member)) throw new HttpError(404, 'Squad not found');
+  const previews = await previewMembers([s.id]);
+  const card = publicCard(s, previews, viewer || 'anon');
+  card.viewer = { member: !!s.is_member, request: s.req_status || null, requestAt: s.req_at || null, signedIn: !!viewer };
+  return card;
+}
+
+async function addMember(squadId, username) {
+  const [count, mine] = await Promise.all([
+    db.get('SELECT COUNT(*) AS n FROM squad_members WHERE squad_id = ?', squadId),
+    db.get('SELECT COUNT(*) AS n FROM squad_members WHERE username = ?', username),
+  ]);
+  if (count.n >= 100) throw new HttpError(400, 'This squad is full');
+  if (mine.n >= 20) throw new HttpError(400, 'You’re in the maximum number of squads (20)');
+  await db.run('INSERT OR IGNORE INTO squad_members (squad_id, username, joined_at) VALUES (?,?,?)', squadId, username, now());
+}
+
+// Open squads: join instantly.
+export async function joinOpen(id, username) {
+  const s = await db.get('SELECT * FROM squads WHERE id = ?', Number(id));
+  if (!s || !s.listed) throw new HttpError(404, 'Squad not found');
+  if (await isMember(s.id, username)) return squadView(s, username);
+  if (s.join_mode !== 'open') throw new HttpError(403, s.join_mode === 'request' ? 'This squad needs approval — send a request instead' : 'This squad is invite-only');
+  await addMember(s.id, username);
+  await notify([{ username: s.owner, type: 'member_joined', actor: username, squadId: s.id, title: s.name }]);
+  return squadView(s, username);
+}
+
+const REREQUEST_AFTER_S = 3 * 86400;
+
+// By-request squads: ask the owner. A declined request can be re-sent after a few days.
+export async function requestToJoin(id, username, message) {
+  const s = await db.get('SELECT * FROM squads WHERE id = ?', Number(id));
+  if (!s || !s.listed) throw new HttpError(404, 'Squad not found');
+  if (await isMember(s.id, username)) throw new HttpError(400, 'You’re already in this squad');
+  if (s.join_mode !== 'request') throw new HttpError(403, s.join_mode === 'open' ? 'This squad is open — just join' : 'This squad is invite-only');
+  const text = trimTo(message, 200, 'Your message');
+  const prev = await db.get('SELECT status, decided_at FROM squad_requests WHERE squad_id = ? AND username = ?', s.id, username);
+  if (prev?.status === 'pending') throw new HttpError(400, 'You already have a request waiting');
+  if (prev?.status === 'declined' && now() - (prev.decided_at || 0) < REREQUEST_AFTER_S) throw new HttpError(429, 'The owner declined recently — try again in a few days');
+  await db.run(`INSERT INTO squad_requests (squad_id, username, message, status, created_at, decided_at) VALUES (?,?,?,'pending',?,NULL)
+    ON CONFLICT(squad_id, username) DO UPDATE SET message = excluded.message, status = 'pending', created_at = excluded.created_at, decided_at = NULL`,
+    s.id, username, text, now());
+  await notify([{ username: s.owner, type: 'join_request', actor: username, squadId: s.id, title: s.name }]);
+}
+
+export async function cancelRequest(id, username) {
+  await db.run("DELETE FROM squad_requests WHERE squad_id = ? AND username = ? AND status = 'pending'", Number(id), username);
+}
+
+export async function listRequests(squad, owner) {
+  assertOwner(squad, owner);
+  const rows = await db.all(`SELECT r.id, r.username, r.message, r.created_at, u.real_name, u.avatar, u.totals_json, a.updated_at AS custom_at
+    FROM squad_requests r JOIN users u ON u.username = r.username LEFT JOIN avatars a ON a.username = r.username
+    WHERE r.squad_id = ? AND r.status = 'pending' ORDER BY r.created_at`, squad.id);
+  return rows.map((r) => ({
+    id: r.id, username: r.username, name: r.real_name || '', avatar: avatarUrl(r.username, r.avatar, r.custom_at), message: r.message || '',
+    createdAt: r.created_at, totalSolved: r.totals_json ? JSON.parse(r.totals_json).all ?? null : null,
+  }));
+}
+
+export async function decideRequest(squad, owner, requestId, action) {
+  assertOwner(squad, owner);
+  if (!['approve', 'decline'].includes(action)) throw new HttpError(400, 'Approve or decline');
+  const r = await db.get("SELECT * FROM squad_requests WHERE id = ? AND squad_id = ? AND status = 'pending'", Number(requestId), squad.id);
+  if (!r) throw new HttpError(404, 'That request is no longer pending');
+  if (action === 'approve') {
+    await addMember(squad.id, r.username); // throws if the squad or the requester is at their limit
+    await db.run("UPDATE squad_requests SET status = 'approved', decided_at = ? WHERE id = ?", now(), r.id);
+    await notify([{ username: r.username, type: 'request_approved', actor: owner, squadId: squad.id, title: squad.name }]);
+  } else {
+    await db.run("UPDATE squad_requests SET status = 'declined', decided_at = ? WHERE id = ?", now(), r.id);
+    await notify([{ username: r.username, type: 'request_declined', actor: owner, squadId: squad.id, title: squad.name }]);
+  }
+}
+
+export async function pendingRequestCount(squadId) {
+  return (await db.get("SELECT COUNT(*) AS n FROM squad_requests WHERE squad_id = ? AND status = 'pending'", squadId)).n;
 }

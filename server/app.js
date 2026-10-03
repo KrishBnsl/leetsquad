@@ -180,6 +180,7 @@ const routes = [
     // Explicit deletes (no reliance on ON DELETE CASCADE), all in one atomic batch.
     await db.batch([
       ...forum.purgeUserStatements(username),
+      ['DELETE FROM squad_requests WHERE username = ?', username],
       ...['sessions', 'squad_members', 'user_links', 'gh_days', 'activities', 'avatars', 'submissions', 'sync_state']
         .map((t) => [`DELETE FROM ${t} WHERE username = ?`, username]),
       ['DELETE FROM users WHERE username = ?', username],
@@ -265,7 +266,8 @@ const routes = [
 
   ['POST', /^\/api\/groups$/, async (req) => {
     const me = await requireAuth(req);
-    return { group: await sq.createSquad((await readJson(req)).name, me) };
+    const body = await readJson(req);
+    return { group: await sq.createSquad(body.name, me, { listed: !!body.listed, joinMode: body.joinMode }) };
   }],
 
   ['GET', /^\/api\/groups\/preview\/([^/]+)$/, async (req, m) => {
@@ -287,7 +289,11 @@ const routes = [
       getSyncStatuses(), feed(25, board.members.map((u) => u.username)), sq.challengeSummaries(squad, board, me), notif.unreadBySquad(me),
     ]);
     return {
-      group: { id: squad.id, name: squad.name, code: squad.code, owner: squad.owner, isOwner: squad.owner.toLowerCase() === me.toLowerCase() },
+      group: {
+        id: squad.id, name: squad.name, code: squad.code, owner: squad.owner, isOwner: squad.owner.toLowerCase() === me.toLowerCase(),
+        ...sq.cardFields(squad), pendingRequests: squad.owner.toLowerCase() === me.toLowerCase() ? await sq.pendingRequestCount(squad.id) : 0,
+      },
+      options: { tags: sq.SQUAD_TAGS, colors: sq.SQUAD_COLORS },
       me, tz: TZ, users: board.users.map((e) => withSync(e, statuses)), feed: recent, challenges, unread: unreadMap.get(squad.id) || 0,
     };
   }],
@@ -390,6 +396,39 @@ const routes = [
     await rateLimitKey(`post:${me}`, 10);
     const body = await readJson(req, 20_000);
     return forum.createPost(me, body, { squadId: squad.id, challengeId: body.challengeId ?? null });
+  }],
+
+  /* ----- squad directory, cards & join policies ----- */
+  ['GET', /^\/api\/squads\/directory$/, async (req) => {
+    const q = new URL(req.url, 'http://x').searchParams;
+    return sq.directory({ q: q.get('q'), mode: q.get('mode'), tag: q.get('tag'), sort: q.get('sort'), page: q.get('page') }, await optionalAuth(req));
+  }],
+  ['GET', /^\/api\/squads\/(\d+)\/card$/, async (req, m) => sq.cardFor(m[1], await optionalAuth(req))],
+  ['POST', /^\/api\/squads\/(\d+)\/join$/, async (req, m) => {
+    const me = await requireAuth(req);
+    await rateLimitKey(`join:${me}`, 30);
+    return { group: await sq.joinOpen(m[1], me) };
+  }],
+  ['POST', /^\/api\/squads\/(\d+)\/request$/, async (req, m) => {
+    const me = await requireAuth(req);
+    await rateLimitKey(`join:${me}`, 30);
+    await sq.requestToJoin(m[1], me, (await readJson(req)).message);
+    return { requested: true };
+  }],
+  ['DELETE', /^\/api\/squads\/(\d+)\/request$/, async (req, m) => { await sq.cancelRequest(m[1], await requireAuth(req)); return { cancelled: true }; }],
+  ['PUT', /^\/api\/squads\/(\d+)\/settings$/, async (req, m) => {
+    const me = await requireAuth(req);
+    await sq.updateSettings(await sq.requireSquad(m[1], me), me, await readJson(req));
+    return { ok: true };
+  }],
+  ['GET', /^\/api\/squads\/(\d+)\/requests$/, async (req, m) => {
+    const me = await requireAuth(req);
+    return { requests: await sq.listRequests(await sq.requireSquad(m[1], me), me) };
+  }],
+  ['POST', /^\/api\/squads\/(\d+)\/requests\/(\d+)$/, async (req, m) => {
+    const me = await requireAuth(req);
+    await sq.decideRequest(await sq.requireSquad(m[1], me), me, m[2], (await readJson(req)).action);
+    return { ok: true };
   }],
 
   /* ----- notifications ----- */

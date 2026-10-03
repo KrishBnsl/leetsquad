@@ -3,6 +3,10 @@ import { db } from './db.js';
 import { avatarUrl } from './stats.js';
 
 const now = () => Math.floor(Date.now() / 1000);
+// "Discussion" badges only count conversation activity; squad housekeeping (requests, joins, challenges) is separate.
+const DISCUSSION = ['group_post', 'challenge_thread', 'reply', 'thread_reply', 'accepted', 'like'];
+const ADMIN = ['join_request', 'member_joined', 'request_approved', 'request_declined'];
+const inList = (arr) => arr.map((t) => `'${t}'`).join(',');
 const same = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 // rows: [{ username, type, actor, postId, replyId, squadId, challengeId, title }]. Never notifies someone about their own action.
@@ -40,19 +44,19 @@ export async function listFor(username, limit = 40) {
 }
 
 // One of: { all: true } | { ids: [..] } | { squadId } | { postId }
-export async function markRead(username, { all, ids, squadId, postId } = {}) {
+export async function markRead(username, { all, ids, squadId, postId, admin } = {}) {
   const t = now();
   if (all) return db.run('UPDATE notifications SET read_at = ? WHERE username = ? AND read_at IS NULL', t, username);
   if (Array.isArray(ids) && ids.length) {
     const clean = ids.map(Number).filter(Number.isInteger).slice(0, 100);
     if (clean.length) return db.run(`UPDATE notifications SET read_at = ? WHERE username = ? AND read_at IS NULL AND id IN (${clean.map(() => '?').join(',')})`, t, username, ...clean);
   }
-  if (squadId != null) return db.run('UPDATE notifications SET read_at = ? WHERE username = ? AND squad_id = ? AND read_at IS NULL', t, username, Number(squadId));
+  if (squadId != null) return db.run(`UPDATE notifications SET read_at = ? WHERE username = ? AND squad_id = ? AND read_at IS NULL AND type IN (${inList(admin ? ADMIN : DISCUSSION)})`, t, username, Number(squadId));
   if (postId != null) return db.run('UPDATE notifications SET read_at = ? WHERE username = ? AND post_id = ? AND read_at IS NULL', t, username, Number(postId));
 }
 
 export async function unreadBySquad(username) {
   const map = new Map();
-  for (const r of await db.all('SELECT squad_id, COUNT(*) AS n FROM notifications WHERE username = ? AND squad_id IS NOT NULL AND read_at IS NULL GROUP BY squad_id', username)) map.set(r.squad_id, r.n);
+  for (const r of await db.all(`SELECT squad_id, COUNT(*) AS n FROM notifications WHERE username = ? AND squad_id IS NOT NULL AND read_at IS NULL AND type IN (${inList(DISCUSSION)}) GROUP BY squad_id`, username)) map.set(r.squad_id, r.n);
   return map;
 }

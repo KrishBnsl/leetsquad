@@ -272,7 +272,7 @@ function renderHome(data) {
   const leader = [...data.users].sort((x, y) => y.modes.overall.periods.week.points - x.modes.overall.periods.week.points)[0];
   const lp = leader?.modes.overall.periods.week.points || 0;
   const ctas = auth.username
-    ? `<a class="btn btn-pink" href="/squads" data-link>${icon('users')} Your squads</a><a class="btn btn-yellow" href="/forum" data-link>${icon('message')} Forum</a>`
+    ? `<a class="btn btn-pink" href="/squads/mine" data-link>${icon('users')} Your squads</a><a class="btn btn-yellow" href="/forum" data-link>${icon('message')} Forum</a>`
     : `<button class="btn btn-pink" data-join data-title="Sign in">${icon('plus')} Join the leaderboard</button><a class="btn btn-yellow" href="/forum" data-link>${icon('message')} Browse the forum</a>`;
 
   const hero = `<section class="hero herogrid">
@@ -790,44 +790,156 @@ function promptModal({ title, text, label, placeholder, button, maxlength = 40, 
   });
 }
 
-const openCreateGroup = () => needSignIn(() => promptModal({
-  title: 'Create a squad', text: 'A private leaderboard for you and your friends. You’ll get an invite code to share.',
-  label: 'Squad name', placeholder: 'e.g. Hostel 4 Grinders', button: 'Create squad',
-  onSubmit: async (name) => { const r = await api('/api/groups', { method: 'POST', body: { name } }); confetti(); toast('Squad created!'); navigate(`/s/${r.group.id}`); },
-}), 'create a squad');
+const openCreateGroup = () => needSignIn(() => {
+  const { close, el } = showModal(`<h2>Create a squad</h2><p class="muted" style="margin:0">A leaderboard, challenges and discussion for you and your friends.</p>
+    <form id="cs-form" autocomplete="off"><div class="field"><label for="cs-name">Squad name</label><input id="cs-name" name="name" required maxlength="40" placeholder="e.g. Hostel 4 Grinders"></div>
+      <div class="field"><label class="chk"><input type="checkbox" name="listed"> List in the squad directory</label>
+        <small>Let people discover it. Leave this off to keep it private — anyone with your invite code can still join.</small></div>
+      <div class="field" id="cs-mode" hidden><label for="cs-join">Who can join?</label><select id="cs-join" name="joinMode">
+        ${Object.entries(MODE_LABEL).map(([k, l]) => `<option value="${k}"${k === 'request' ? ' selected' : ''}>${l} — ${MODE_HELP[k]}</option>`).join('')}</select></div>
+      <p class="muted fine" style="margin:0">You can write the full squad card (about, rules, topics) in Settings after creating it.</p>
+      <div class="err" hidden></div><div class="btns"><button type="button" class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-pink" id="cs-go">Create squad</button></div></form>`);
+  const f = el.querySelector('#cs-form');
+  f.elements.listed.addEventListener('change', () => { el.querySelector('#cs-mode').hidden = !f.elements.listed.checked; });
+  el.querySelector('#cs-name').focus();
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = el.querySelector('#cs-go'), err = el.querySelector('.err');
+    btn.disabled = true; err.hidden = true;
+    try {
+      const listed = f.elements.listed.checked;
+      const r = await api('/api/groups', { method: 'POST', body: { name: f.elements.name.value, listed, joinMode: listed ? f.elements.joinMode.value : 'invite' } });
+      close(); confetti(); toast('Squad created!');
+      navigate(listed ? `/s/${r.group.id}/settings` : `/s/${r.group.id}`);
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+  });
+}, 'create a squad');
 const openJoinCode = (prefill = '') => needSignIn(() => promptModal({
   title: 'Join with an invite code', text: 'Ask a friend for their squad’s 8-character code.',
   label: 'Invite code', placeholder: 'ABCD-EFGH', button: 'Join squad', maxlength: 12,
   onSubmit: async (code) => { const r = await api('/api/groups/join', { method: 'POST', body: { code } }); toast(`You’re in ${r.group.name}!`); navigate(`/s/${r.group.id}`); },
 }), 'join a squad');
 
-/* ----- groups list ----- */
-async function groupsPage() {
-  if (!auth.username) {
-    app.innerHTML = `<section class="hero"><h1>Your <span class="hl">squads</span></h1>
-      <p>Private leaderboards and challenges for you and your friends — separate from the global board.</p>
-      <div class="stats-strip"><button class="btn btn-pink" data-act="create-group">${icon('plus')} Create a squad</button>
-      <button class="btn btn-yellow" data-act="join-code">${icon('users')} Join a squad</button></div>
-      <p class="muted" style="font-size:14px">Already on the leaderboard? <a href="#" data-join data-title="Sign in" style="text-decoration:underline">Sign in</a> to see your squads.</p></section>`;
-    return;
-  }
-  app.innerHTML = '<div class="skeleton"></div>'.repeat(3);
-  try {
-    const { groups } = await api('/api/groups');
-    const cards = groups.map((g) => `<a class="card gcard" href="/s/${g.id}" data-link>
-      <div class="gico">${icon('users')}</div><div class="gname">${esc(g.name)}</div>
-      <div class="chips"><span class="chip">${plural(g.members, 'member')}</span>
-        ${g.unread ? `<span class="chip st-up">${icon('bell')} ${g.unread} new</span>` : ''}
-        ${g.activeChallenges ? `<span class="chip st-active">${plural(g.activeChallenges, 'live challenge')}</span>` : ''}
-        ${g.isOwner ? `<span class="chip">${icon('award')} Owner</span>` : ''}</div></a>`).join('');
-    app.innerHTML = `<section class="hero"><h1>Your <span class="hl">squads</span></h1><p>Separate leaderboards and challenges for each of your crews.</p>
-      <div class="stats-strip"><button class="btn btn-pink" data-act="create-group">${icon('plus')} Create a squad</button>
-      <button class="btn btn-yellow" data-act="join-code">${icon('users')} Join a squad</button></div></section>
-      ${groups.length ? `<div class="gridc">${cards}</div>` : `<div class="card empty" style="margin-top:24px"><span class="big">${icon('users')}</span><h3>No squads yet</h3><p class="muted">Create one, or join a friend’s with their invite code.</p></div>`}`;
-  } catch (e) { app.innerHTML = `<div class="card empty"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
+/* ----- squad directory, cards & join policies ----- */
+const SQUAD_TAGS = ['Beginner friendly', 'Intermediate', 'Advanced', 'Interview prep', 'Competitive programming', 'Weekly challenges',
+  'Casual', 'Hardcore', 'Students', 'Working professionals', 'Study group', 'LeetCode', 'Codeforces', 'DSA', 'System design'];
+const SQ_COLORS = { pink: '#ff6b9d', yellow: '#ffd23f', mint: '#3ddc97', blue: '#4d96ff', purple: '#9b5de5', orange: '#ff9f45' };
+const MODE_LABEL = { open: 'Open', request: 'By request', invite: 'Invite only' };
+const MODE_HELP = { open: 'Anyone signed in can join instantly.', request: 'People send a request and you approve or decline it.', invite: 'Joining needs an invite code from a member.' };
+const MODE_ICON = { open: 'check', request: 'hourglass', invite: 'lock' };
+const modeChip = (m) => `<span class="chip mode-${m}">${icon(MODE_ICON[m] || 'lock')} ${MODE_LABEL[m] || m}</span>`;
+const avStack = (list = []) => `<span class="avs">${list.map((p) => avatar({ username: p.username, avatar: p.avatar }, 'mini')).join('')}</span>`;
+const dirState = { q: '', mode: '', tag: '', sort: 'members', squads: [], page: 1, hasMore: false };
+
+function squadCardHtml(c, { preview = false } = {}) {
+  const tag = preview ? 'div' : 'a';
+  return `<${tag} class="card sqcard sq-${esc(c.color)}"${preview ? '' : ` href="/s/${c.id}" data-link`}>
+    <div class="sqtop"><div class="sqname">${esc(c.name || 'Your squad name')}</div>${modeChip(c.joinMode)}</div>
+    ${c.tagline ? `<div class="sqtagline">${esc(c.tagline)}</div>` : ''}
+    ${c.tags?.length ? `<div class="chips">${c.tags.slice(0, 4).map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}${c.tags.length > 4 ? `<span class="chip">+${c.tags.length - 4}</span>` : ''}</div>` : ''}
+    <div class="sqfoot">${avStack(c.preview)}<span class="muted">${plural(c.members ?? 1, 'member')}${c.activeChallenges ? ` · ${plural(c.activeChallenges, 'live challenge')}` : ''}</span>
+      ${c.viewer?.member ? `<span class="chip st-done">${icon('check')} Joined</span>` : c.viewer?.request === 'pending' ? '<span class="chip st-up">Request sent</span>' : ''}</div></${tag}>`;
 }
 
-/* ----- invite link ----- */
+function renderDirectory() {
+  const grid = $('#sqgrid');
+  if (!grid) return;
+  grid.innerHTML = dirState.squads.length ? dirState.squads.map((c) => squadCardHtml(c)).join('')
+    : `<div class="card empty" style="grid-column:1/-1"><span class="big">${icon('search')}</span><h3>${dirState.q || dirState.mode || dirState.tag ? 'No squads match that' : 'No squads are listed yet'}</h3>
+        <p class="muted">${dirState.q || dirState.mode || dirState.tag ? 'Try different words or clear a filter.' : 'Create one and list it so others can find it.'}</p></div>`;
+  $('#sqmore').innerHTML = dirState.hasMore ? '<button class="btn btn-yellow" data-act="sq-more">Load more</button>' : '';
+}
+
+async function loadDirectory(append = false) {
+  const q = new URLSearchParams({ q: dirState.q, mode: dirState.mode, tag: dirState.tag, sort: dirState.sort, page: append ? dirState.page + 1 : 1 });
+  const seq = (dirState.seq = (dirState.seq || 0) + 1); // only the newest request may update the list
+  try {
+    const d = await api(`/api/squads/directory?${q}`);
+    if (seq !== dirState.seq) return;
+    dirState.squads = append ? dirState.squads.concat(d.squads) : d.squads;
+    dirState.page = d.page; dirState.hasMore = d.hasMore;
+    renderDirectory();
+  } catch (e) { const g = $('#sqgrid'); if (g) g.innerHTML = `<div class="card empty" style="grid-column:1/-1"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
+}
+
+function discoverView() {
+  const modes = [['', 'All'], ['open', 'Open'], ['request', 'By request'], ['invite', 'Invite only']];
+  $('#sqbody').innerHTML = `<div class="tabrow"><div class="tabs" role="tablist" aria-label="Join policy">${modes.map(([k, l]) => `<button class="tab" role="tab" data-sqmode="${k}" aria-selected="${k === dirState.mode}">${l}</button>`).join('')}</div>
+      <div class="forumtools"><input type="search" id="sqq" placeholder="Search squads by name, topic…" value="${esc(dirState.q)}" aria-label="Search squads" maxlength="60">
+        <select id="sqtag" aria-label="Topic"><option value="">All topics</option>${SQUAD_TAGS.map((t) => `<option${t === dirState.tag ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
+        <select id="sqsort" aria-label="Sort">${[['members', 'Most members'], ['active', 'Most active'], ['new', 'Newest'], ['name', 'A–Z']].map(([k, l]) => `<option value="${k}"${k === dirState.sort ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    <div id="sqgrid" class="gridc"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div><div id="sqmore" style="text-align:center;margin-top:16px"></div>
+    <p class="muted fine" style="text-align:center;margin-top:18px">Can’t find your squad? It may be private — ask a member for the invite code, then <a href="#" data-act="join-code" style="text-decoration:underline">enter it here</a>.</p>`;
+  let t;
+  $('#sqq').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { dirState.q = e.target.value.trim(); loadDirectory(); }, 350); });
+  $('#sqtag').addEventListener('change', (e) => { dirState.tag = e.target.value; loadDirectory(); });
+  $('#sqsort').addEventListener('change', (e) => { dirState.sort = e.target.value; loadDirectory(); });
+  loadDirectory();
+}
+
+async function mineView() {
+  const body = $('#sqbody');
+  if (!auth.username) {
+    body.innerHTML = `<div class="card empty"><span class="big">${icon('users')}</span><h3>Sign in to see your squads</h3><button class="btn btn-pink" data-join data-title="Sign in">Sign in</button></div>`;
+    return;
+  }
+  body.innerHTML = '<div class="skeleton"></div>'.repeat(2);
+  try {
+    const { groups } = await api('/api/groups');
+    body.innerHTML = groups.length ? `<div class="gridc">${groups.map((g) => `<a class="card gcard" href="/s/${g.id}" data-link>
+        <div class="gico">${icon('users')}</div><div class="gname">${esc(g.name)}</div>
+        ${g.tagline ? `<div class="muted">${esc(g.tagline)}</div>` : ''}
+        <div class="chips"><span class="chip">${plural(g.members, 'member')}</span>${modeChip(g.joinMode)}
+          ${g.pendingRequests ? `<span class="chip st-up">${icon('bell')} ${plural(g.pendingRequests, 'request')}</span>` : ''}
+          ${g.unread ? `<span class="chip st-up">${icon('bell')} ${g.unread} new</span>` : ''}
+          ${g.activeChallenges ? `<span class="chip st-active">${plural(g.activeChallenges, 'live challenge')}</span>` : ''}
+          ${g.isOwner ? `<span class="chip">${icon('award')} Owner</span>` : ''}</div></a>`).join('')}</div>`
+      : `<div class="card empty"><span class="big">${icon('users')}</span><h3>You’re not in a squad yet</h3><p class="muted">Browse the directory, join with a code, or start your own.</p><a class="btn btn-yellow" href="/squads" data-link>Browse squads</a></div>`;
+  } catch (e) { body.innerHTML = `<div class="card empty"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
+}
+
+// /squads (directory) and /squads/mine
+function groupsPage() {
+  const tab = /^\/squads\/mine/.test(location.pathname) ? 'mine' : 'discover';
+  app.innerHTML = `<section class="hero"><h1>Find your <span class="hl">squad</span></h1>
+    <p>Browse squads, send a request or join with an invite code — or start your own with its own leaderboard, challenges and discussion.</p>
+    <div class="stats-strip"><button class="btn btn-pink" data-act="create-group">${icon('plus')} Create a squad</button>
+      <button class="btn btn-yellow" data-act="join-code">${icon('users')} Join with code</button></div></section>
+    <div class="tabs maintabs" role="tablist" style="margin-top:20px"><a class="tab" role="tab" href="/squads" data-link aria-selected="${tab === 'discover'}">Discover</a>
+      <a class="tab" role="tab" href="/squads/mine" data-link aria-selected="${tab === 'mine'}">My squads</a></div>
+    <div id="sqbody" style="margin-top:18px"></div>`;
+  if (tab === 'mine') mineView(); else discoverView();
+}
+
+/* ----- the card a non-member sees ----- */
+function squadCardPage(c) {
+  const v = c.viewer || {};
+  const declinedRecently = v.request === 'declined' && v.requestAt && Date.now() / 1000 - v.requestAt < 3 * 86400;
+  let cta;
+  if (v.member) cta = `<a class="btn btn-mint" href="/s/${c.id}" data-link>${icon('check')} Open squad</a>`;
+  else if (c.joinMode === 'open') cta = `<button class="btn btn-pink" data-act="sq-join" data-id="${c.id}">${icon('plus')} Join squad</button><small class="muted">Instant — no approval needed.</small>`;
+  else if (c.joinMode === 'request') {
+    cta = v.request === 'pending'
+      ? `<span class="chip st-up">${icon('hourglass')} Request sent — waiting for @${esc(c.owner)}</span><button class="btn btn-ghost btn-small" data-act="sq-cancel" data-id="${c.id}">Cancel request</button>`
+      : declinedRecently ? '<p class="muted" style="margin:0">The owner declined your last request. You can ask again in a few days.</p>'
+      : `<textarea id="sq-msg" rows="3" maxlength="200" placeholder="Say hi and why you’d like to join (optional)"></textarea><button class="btn btn-pink" data-act="sq-request" data-id="${c.id}">${icon('hourglass')} Request to join</button>`;
+  } else cta = `<p class="muted" style="margin:0">${icon('lock')} Invite only — ask a member for the code.</p><button class="btn btn-yellow" data-act="join-code">I have a code</button>`;
+
+  const section = (title, ic, text) => text ? `<section class="card"><h2>${hi(ic, '#e1d2ff')} ${title}</h2><p class="sqtext">${esc(text)}</p></section>` : '';
+  app.innerHTML = `<a class="back" href="/squads" data-link>← All squads</a>
+    <section class="card sqhero sq-${esc(c.color)}"><div class="sqhead"><h1>${esc(c.name)}</h1>${c.tagline ? `<div class="sqtagline">${esc(c.tagline)}</div>` : ''}
+        <div class="chips">${modeChip(c.joinMode)}${c.tags.map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}</div>
+        <div class="sqfacts"><span class="muted">${avStack(c.preview)} ${plural(c.members, 'member')}</span>
+          ${c.activeChallenges ? `<span class="chip st-active">${plural(c.activeChallenges, 'live challenge')}</span>` : ''}
+          <span class="muted">Run by <a href="/u/${encodeURIComponent(c.owner)}" data-link style="text-decoration:underline">@${esc(c.owner)}</a></span></div></div>
+      <div class="sqcta">${cta}</div></section>
+    <div class="grid2" style="margin-top:22px">${section('About', 'list', c.about) || ''}${section('Who it’s for', 'users', c.audience) || ''}</div>
+    ${section('Rules & requirements', 'alert', c.rules)}
+    ${!c.about && !c.audience && !c.rules ? '<div class="card"><p class="muted" style="margin:0">The owner hasn’t written the details for this squad yet.</p></div>' : ''}
+    <section class="card" style="margin-top:22px"><h2>${hi('lock', '#fff3b0')} How joining works</h2><p class="sqtext">${esc(MODE_HELP[c.joinMode])}</p></section>`;
+}
+
+/* ----- invite link landing: shows the card too ----- */
 async function joinPage(code) {
   app.innerHTML = '<div class="skeleton"></div>';
   try {
@@ -836,14 +948,112 @@ async function joinPage(code) {
       try { const r = await api('/api/groups/join', { method: 'POST', body: { code } }); confetti(); toast(`You’re in ${r.group.name}!`); navigate(`/s/${r.group.id}`); }
       catch (e) { toast(e.message); }
     };
-    app.innerHTML = `<div class="card empty" style="margin:36px auto;max-width:520px"><span class="big">${icon('users')}</span>
-      <p class="muted" style="margin:0">You’re invited to join</p><h3>${esc(g.name)}</h3>
-      <p class="muted">${plural(g.members, 'member')} · created by @${esc(g.owner)}</p>
-      <button class="btn btn-pink" id="accept">Join squad</button></div>`;
+    const block = (t, x) => x ? `<div class="invblock"><b>${t}</b><p>${esc(x)}</p></div>` : '';
+    app.innerHTML = `<div class="card sqhero sq-${esc(g.color || 'pink')}" style="margin:30px auto;max-width:640px;display:block;text-align:left">
+      <p class="muted" style="margin:0">You’re invited to join</p><h1 style="margin:2px 0 6px">${esc(g.name)}</h1>
+      ${g.tagline ? `<div class="sqtagline">${esc(g.tagline)}</div>` : ''}
+      <div class="chips" style="margin:8px 0">${(g.tags || []).map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}</div>
+      <p class="muted">${plural(g.members, 'member')} · run by @${esc(g.owner)}</p>
+      ${block('About', g.about)}${block('Who it’s for', g.audience)}${block('Rules', g.rules)}
+      <button class="btn btn-pink" id="accept" style="margin-top:14px">Join squad</button></div>`;
     $('#accept').addEventListener('click', () => needSignIn(doJoin, `join ${g.name}`));
   } catch (e) {
     app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3>
-      <a class="btn btn-yellow" href="/squads" data-link>My squads</a></div>`;
+      <a class="btn btn-yellow" href="/squads" data-link>Browse squads</a></div>`;
+  }
+}
+
+/* ----- owner: settings + join requests ----- */
+const optionsHtml = (arr, cur) => arr.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('');
+
+function settingsView(d) {
+  const g = d.group;
+  return `<div id="sqreq"></div>
+  <div class="settings-grid"><section class="card"><h2>${hi('pencil', '#ffdcb8')} Squad card</h2>
+    <p class="muted" style="margin:0 0 12px">This is what people see in the directory and before they join.</p>
+    <form id="sq-form" autocomplete="off">
+      <div class="field"><label for="st-name">Name</label><input id="st-name" name="name" required maxlength="40" value="${esc(g.name)}"></div>
+      <div class="field"><label for="st-tag">Tagline <em>(one line)</em></label><input id="st-tag" name="tagline" maxlength="80" placeholder="e.g. One DP problem a day, together" value="${esc(g.tagline)}"></div>
+      <div class="field"><label for="st-about">What’s this squad about?</label><textarea id="st-about" name="about" rows="3" maxlength="600" placeholder="Your goals, how you practise, what a week looks like…">${esc(g.about)}</textarea></div>
+      <div class="field"><label for="st-aud">Who is it for?</label><textarea id="st-aud" name="audience" rows="2" maxlength="300" placeholder="e.g. Beginners aiming for their first internship">${esc(g.audience)}</textarea></div>
+      <div class="field"><label for="st-rules">Rules & requirements <em>(optional)</em></label><textarea id="st-rules" name="rules" rows="2" maxlength="400" placeholder="e.g. Solve at least 3 problems a week. Be kind.">${esc(g.rules)}</textarea></div>
+      <div class="field"><label>Topics <em>(up to 5)</em></label><div class="topic-pick">${(d.options?.tags || SQUAD_TAGS).map((t) => `<button type="button" class="chip tp" data-sqtag="${esc(t)}" aria-pressed="${g.tags.includes(t)}">${esc(t)}</button>`).join('')}</div></div>
+      <div class="field"><label>Card colour</label><div class="swatches">${Object.entries(SQ_COLORS).map(([k, hex]) => `<button type="button" class="swatch" data-sqcolor="${k}" style="background:${hex}" aria-label="${k}" aria-pressed="${k === g.color}"></button>`).join('')}</div></div>
+      <div class="field"><label class="chk"><input type="checkbox" name="listed"${g.listed ? ' checked' : ''}> List this squad in the directory</label>
+        <small>Anyone can find it and read the card. Unlisted squads are only reachable with your invite code.</small></div>
+      <div class="field" id="st-modes"><label>Who can join?</label><div class="modepick">${Object.keys(MODE_LABEL).map((m) => `<label class="modeopt"><input type="radio" name="joinMode" value="${m}"${m === g.joinMode ? ' checked' : ''}><span>${modeChip(m)}<small>${MODE_HELP[m]}</small></span></label>`).join('')}</div>
+        <small class="muted" id="st-modehint"></small></div>
+      <div class="err" hidden></div><div class="btns"><button class="btn btn-pink" id="st-save">Save changes</button></div>
+    </form></section>
+    <aside class="settings-preview"><h3 class="muted" style="font:700 14px var(--display);margin:0 0 8px;text-transform:uppercase;letter-spacing:.06em">Preview</h3><div id="sq-preview"></div>
+      <p class="muted fine">Invite code: <b>${fmtCode(g.code)}</b> — always works, whatever the policy.</p></aside></div>`;
+}
+
+function bindSettings(d) {
+  const f = $('#sq-form');
+  if (!f) return;
+  const picked = new Set(d.group.tags);
+  let color = d.group.color;
+  const read = () => ({
+    name: f.elements.name.value.trim(), tagline: f.elements.tagline.value.trim(), about: f.elements.about.value.trim(), audience: f.elements.audience.value.trim(),
+    rules: f.elements.rules.value.trim(), tags: [...picked], color, listed: f.elements.listed.checked,
+    joinMode: f.elements.listed.checked ? (f.elements.joinMode.value || 'invite') : 'invite',
+  });
+  const refresh = () => {
+    const v = read();
+    f.querySelectorAll('input[name="joinMode"]').forEach((r) => { r.disabled = !v.listed; if (!v.listed) r.checked = r.value === 'invite'; });
+    $('#st-modes').classList.toggle('dim', !v.listed);
+    $('#st-modehint').textContent = v.listed ? '' : 'Unlisted squads are invite-only. List the squad to allow open or request-based joining.';
+    $('#sq-preview').innerHTML = squadCardHtml({ ...v, members: d.users.length, preview: d.users.slice(0, 4).map((u) => ({ username: u.username, avatar: u.avatar })), activeChallenges: d.challenges.filter((c) => c.status === 'active').length }, { preview: true });
+  };
+  f.querySelectorAll('[data-sqtag]').forEach((b) => b.addEventListener('click', () => {
+    const t = b.dataset.sqtag;
+    if (picked.has(t)) picked.delete(t); else if (picked.size < 5) picked.add(t); else return toast('Up to 5 topics');
+    b.setAttribute('aria-pressed', picked.has(t)); refresh();
+  }));
+  f.querySelectorAll('[data-sqcolor]').forEach((b) => b.addEventListener('click', () => {
+    color = b.dataset.sqcolor; f.querySelectorAll('[data-sqcolor]').forEach((x) => x.setAttribute('aria-pressed', x === b)); refresh();
+  }));
+  f.addEventListener('input', refresh);
+  refresh();
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#st-save'), err = f.querySelector('.err');
+    btn.disabled = true; err.hidden = true;
+    try { await api(`/api/squads/${d.group.id}/settings`, { method: 'PUT', body: read() }); toast('Squad card saved'); groupPage(d.group.id); }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+  });
+  loadRequests(d.group);
+}
+
+async function loadRequests(g) {
+  const box = $('#sqreq');
+  if (!box) return;
+  try {
+    const { requests } = await api(`/api/squads/${g.id}/requests`);
+    if (!requests.length && g.joinMode !== 'request') { box.innerHTML = ''; return; }
+    box.innerHTML = `<section class="card" style="margin-bottom:22px"><h2>${hi('bell', '#fff3b0')} Join requests <small>${requests.length ? `${requests.length} waiting` : 'none right now'}</small></h2>
+      ${requests.length ? `<div class="reqs">${requests.map((r) => `<div class="req"><a href="/u/${encodeURIComponent(r.username)}" data-link>${avatar(r, 'mini')}</a>
+        <div class="reqmain"><div><a href="/u/${encodeURIComponent(r.username)}" data-link><b>${esc(r.name || r.username)}</b></a> <span class="muted">@${esc(r.username)}${r.totalSolved != null ? ` · ${r.totalSolved} solved` : ''} · ${ago(r.createdAt)}</span></div>
+          ${r.message ? `<div class="reqmsg">“${esc(r.message)}”</div>` : ''}</div>
+        <div class="reqbtns"><button class="btn btn-small btn-mint" data-act="sq-decide" data-squad="${g.id}" data-id="${r.id}" data-action="approve">${icon('check')} Approve</button>
+          <button class="btn btn-small btn-ghost" data-act="sq-decide" data-squad="${g.id}" data-id="${r.id}" data-action="decline">Decline</button></div></div>`).join('')}</div>`
+        : '<p class="muted" style="margin:0">When someone asks to join, they’ll show up here.</p>'}</section>`;
+  } catch { box.innerHTML = ''; }
+}
+
+async function squadAction(name, el) {
+  const id = el.dataset.id;
+  const run = async (fn, msg) => { try { await fn(); if (msg) toast(msg); } catch (e) { toast(e.message); } };
+  if (name === 'sq-more') return loadDirectory(true);
+  if (name === 'sq-join') return needSignIn(() => run(async () => { await api(`/api/squads/${id}/join`, { method: 'POST' }); confetti(); navigate(`/s/${id}`); }, 'Welcome to the squad!'), 'join this squad');
+  if (name === 'sq-request') return needSignIn(() => run(async () => {
+    await api(`/api/squads/${id}/request`, { method: 'POST', body: { message: $('#sq-msg')?.value || '' } }); groupPage(id);
+  }, 'Request sent — you’ll get a notification'), 'request to join');
+  if (name === 'sq-cancel') return run(async () => { await api(`/api/squads/${id}/request`, { method: 'DELETE' }); groupPage(id); }, 'Request cancelled');
+  if (name === 'sq-decide') {
+    const squad = el.dataset.squad, approve = el.dataset.action === 'approve';
+    return run(async () => { await api(`/api/squads/${squad}/requests/${id}`, { method: 'POST', body: { action: el.dataset.action } }); groupPage(squad); }, approve ? 'Approved — they’re in!' : 'Declined');
   }
 }
 
@@ -852,6 +1062,7 @@ function renderGroup(d) {
   current = d;
   rerender = () => renderGroup(d);
   const g = d.group, syncing = isSyncing(d.users);
+  if (groupTab === 'settings' && !g.isOwner) groupTab = 'board';
   const active = d.challenges.filter((c) => c.status === 'active').length;
 
   const manage = g.isOwner && d.users.length > 1 ? `<div class="card" style="margin-top:22px"><h2>${hi('users', '#e1d2ff')} Manage members</h2>
@@ -870,7 +1081,7 @@ function renderGroup(d) {
   app.innerHTML = `
   <a class="back" href="/squads" data-link>← All squads</a>
   <section class="card banner gbanner"><div class="gico big">${icon('users')}</div>
-    <div><h1>${esc(g.name)}</h1><div class="meta"><span class="chip">${plural(d.users.length, 'member')}</span><span class="chip">${icon('award')} Owner @${esc(g.owner)}</span></div></div>
+    <div><h1>${esc(g.name)}</h1><div class="meta"><span class="chip">${plural(d.users.length, 'member')}</span><span class="chip">${icon('award')} Owner @${esc(g.owner)}</span>${modeChip(g.joinMode)}${g.listed ? '' : '<span class="chip">Unlisted</span>'}${g.isOwner && g.pendingRequests ? `<button class="chip st-up" data-gtab="settings">${icon('bell')} ${plural(g.pendingRequests, 'join request')}</button>` : ''}</div>${g.tagline ? `<div class="muted" style="margin-top:6px">${esc(g.tagline)}</div>` : ''}</div>
     <div class="actions">${g.isOwner ? '<button class="btn btn-ghost btn-small" data-act="delete-group">Delete squad</button>' : '<button class="btn btn-ghost btn-small" data-act="leave-group">Leave squad</button>'}</div></section>
   <section class="card invite"><div><div class="k">Invite code</div><div class="code">${fmtCode(g.code)}</div></div>
     <div class="btns"><button class="btn btn-small btn-yellow" data-act="copy-code">Copy code</button>
@@ -879,14 +1090,20 @@ function renderGroup(d) {
   <div class="tabs maintabs" role="tablist" style="margin-top:22px">
     <button class="tab" role="tab" data-gtab="board" aria-selected="${groupTab === 'board'}">Leaderboard</button>
     <button class="tab" role="tab" data-gtab="challenges" aria-selected="${groupTab === 'challenges'}">Challenges${active ? ` <span class="count">${active}</span>` : ''}</button>
-    <button class="tab" role="tab" data-gtab="discussion" aria-selected="${groupTab === 'discussion'}">Discussion${d.unread ? ` <span class="count">${d.unread}</span>` : ''}</button></div>
+    <button class="tab" role="tab" data-gtab="discussion" aria-selected="${groupTab === 'discussion'}">Discussion${d.unread ? ` <span class="count">${d.unread}</span>` : ''}</button>
+    ${g.isOwner ? `<button class="tab" role="tab" data-gtab="settings" aria-selected="${groupTab === 'settings'}">Settings${g.pendingRequests ? ` <span class="count">${g.pendingRequests}</span>` : ''}</button>` : ''}</div>
   ${groupTab === 'board' ? boardHtml(d.users, d.feed, { syncing, below: manage })
+    : groupTab === 'settings' ? settingsView(d)
     : groupTab === 'discussion' ? `<div class="sec-head"><h2>${hi('message', '#dbe9ff')} Discussion <small class="muted" style="font:600 14px var(--body)">${icon('lock')} members only</small></h2>
         <button class="btn btn-pink btn-small" data-act="g-new-post">${icon('plus')} New post</button></div>
       ${forumToolbar(gForum, { catAttr: 'data-gfcat', qId: 'gfq', sortId: 'gfsort' })}
       <div id="gflist"><div class="skeleton"></div><div class="skeleton"></div></div><div id="gfmore" style="text-align:center;margin-top:16px"></div>`
     : `<div class="sec-head"><h2>${hi('target', '#e1d2ff')} Challenges</h2><button class="btn btn-pink btn-small" data-act="new-challenge">${icon('plus')} New challenge</button></div>${challenges}`}`;
 
+  if (groupTab === 'settings') {
+    bindSettings(d);
+    if (g.pendingRequests) api('/api/notifications/read', { method: 'POST', body: { squadId: g.id, admin: true } }).then((r) => { auth.unread = r.unread; renderNav(); }).catch(() => {});
+  }
   if (groupTab === 'discussion') {
     if (gForum.groupId !== g.id) Object.assign(gForum, makeForumState({ groupId: g.id })); // switched groups: start clean
     bindToolbar(gForum, { qId: 'gfq', sortId: 'gfsort' }, loadGroupForum);
@@ -897,8 +1114,22 @@ function renderGroup(d) {
 
 async function groupPage(id) {
   app.innerHTML = '<div class="skeleton"></div>'.repeat(4);
-  if (!auth.username) return groupsPage();
   const here = location.pathname;
+  // Not a member (or signed out)? If the squad is listed, show its public card instead of an error.
+  const asCard = async (err) => {
+    try {
+      const c = await api(`/api/squads/${id}/card`);
+      if (location.pathname !== here) return;
+      if (c.viewer?.member && err) throw err;
+      squadCardPage(c);
+    } catch (e2) {
+      app.innerHTML = auth.username
+        ? `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e2.message)}</h3><a class="btn btn-yellow" href="/squads" data-link>Browse squads</a></div>`
+        : `<div class="card empty" style="margin-top:28px"><span class="big">${icon('lock')}</span><h3>This squad might be private</h3><p class="muted">Sign in if you’re a member, or browse the public squads.</p>
+            <button class="btn btn-pink" data-join data-title="Sign in">Sign in</button> <a class="btn btn-yellow" href="/squads" data-link>Browse squads</a></div>`;
+    }
+  };
+  if (!auth.username) return asCard(null);
   const load = async () => {
     const d = await api(`/api/groups/${id}`);
     if (location.pathname === here) renderGroup(d);
@@ -908,13 +1139,11 @@ async function groupPage(id) {
     let d = await load();
     const poll = async () => {
       if (location.pathname !== here) return;
-      if (isSyncing(d.users) && groupTab !== 'discussion') { try { d = await load(); } catch {} }
+      if (isSyncing(d.users) && groupTab !== 'discussion' && groupTab !== 'settings') { try { d = await load(); } catch {} }
       timer = setTimeout(poll, 4000);
     };
     timer = setTimeout(poll, 4000);
-  } catch (e) {
-    app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/squads" data-link>My squads</a></div>`;
-  }
+  } catch (e) { await asCard(e); }
 }
 
 async function groupAction(act, el) {
@@ -1278,8 +1507,10 @@ function renderPosts(state, v) {
 
 async function loadPosts(state, url, v, append = false) {
   const q = new URLSearchParams({ category: state.category, sort: state.sort, q: state.q, page: append ? state.page + 1 : 1 });
+  const seq = (state.seq = (state.seq || 0) + 1); // ignore out-of-order responses
   try {
     const d = await api(`${url}${url.includes('?') ? '&' : '?'}${q}`);
+    if (seq !== state.seq) return;
     state.posts = append ? state.posts.concat(d.posts) : d.posts;
     state.page = d.page; state.hasMore = d.hasMore;
     renderPosts(state, v);
@@ -1479,8 +1710,8 @@ async function refreshUnread() {
 setInterval(() => { if (!document.hidden) refreshUnread(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshUnread(); });
 
-const NOTIF_ICON = { reply: 'message', thread_reply: 'message', like: 'thumb', accepted: 'check', group_post: 'users', challenge_thread: 'target', challenge_new: 'target' };
-const NOTIF_COLOR = { reply: '#dbe9ff', thread_reply: '#dbe9ff', like: '#ffd0e1', accepted: '#c9f7e3', group_post: '#e1d2ff', challenge_thread: '#fff3b0', challenge_new: '#fff3b0' };
+const NOTIF_ICON = { join_request: 'users', request_approved: 'check', request_declined: 'alert', member_joined: 'users', reply: 'message', thread_reply: 'message', like: 'thumb', accepted: 'check', group_post: 'users', challenge_thread: 'target', challenge_new: 'target' };
+const NOTIF_COLOR = { join_request: '#e1d2ff', request_approved: '#c9f7e3', request_declined: '#ffd0e1', member_joined: '#e1d2ff', reply: '#dbe9ff', thread_reply: '#dbe9ff', like: '#ffd0e1', accepted: '#c9f7e3', group_post: '#e1d2ff', challenge_thread: '#fff3b0', challenge_new: '#fff3b0' };
 function notifText(n) {
   const who = `<b>${esc(n.name || n.actor || 'Someone')}</b>`, t = n.title ? `“${esc(n.title)}”` : 'a post', grp = `<b>${esc(n.squadName || 'your squad')}</b>`;
   switch (n.type) {
@@ -1491,10 +1722,16 @@ function notifText(n) {
     case 'group_post': return `${who} posted in ${grp}: ${t}`;
     case 'challenge_thread': return `${who} started a thread on <b>${esc(n.challengeTitle || 'a challenge')}</b> in ${grp}: ${t}`;
     case 'challenge_new': return `${who} started a challenge in ${grp}: ${t}`;
+    case 'join_request': return `${who} asked to join ${grp}`;
+    case 'request_approved': return `${who} approved your request to join ${grp}`;
+    case 'request_declined': return `${who} declined your request to join ${grp}`;
+    case 'member_joined': return `${who} joined ${grp}`;
     default: return `${who} did something in ${grp}`;
   }
 }
-const notifHref = (n) => (n.type === 'challenge_new' ? `/s/${n.squadId}/c/${n.challengeId}` : `/forum/${n.postId}`);
+const notifHref = (n) => (n.type === 'challenge_new' ? `/s/${n.squadId}/c/${n.challengeId}`
+  : n.type === 'join_request' ? `/s/${n.squadId}/settings` : n.type === 'request_declined' ? '/squads/mine'
+  : n.type === 'request_approved' || n.type === 'member_joined' ? `/s/${n.squadId}` : `/forum/${n.postId}`);
 
 async function notificationsPage() {
   if (!auth.username) {
@@ -1543,10 +1780,11 @@ function route() {
   else if (/^\/forum\/?$/.test(path)) { setTitle('Forum'); forumPage(); }
   else if ((m = path.match(/^\/forum\/(\d+)\/?$/))) { setTitle('Forum'); forumPostPage(m[1]); }
   else if (/^\/notifications\/?$/.test(path)) { setTitle('Notifications'); notificationsPage(); }
-  else if (/^\/(?:groups|squads)\/?$/.test(path)) { setTitle('Squads'); groupsPage(); }
+  else if (/^\/(?:groups|squads)(?:\/mine)?\/?$/.test(path)) { setTitle('Squads'); groupsPage(); }
   else if ((m = path.match(/^\/(?:g|s)\/(\d+)\/c\/(\d+)\/?$/))) { setTitle('Challenge'); challengePage(m[1], m[2]); }
+  else if ((m = path.match(/^\/(?:g|s)\/(\d+)\/settings\/?$/))) { setTitle('Squad settings'); groupTab = 'settings'; groupPage(m[1]); }
   else if ((m = path.match(/^\/(?:g|s)\/(\d+)\/discussion\/?$/))) { setTitle('Squad discussion'); groupTab = 'discussion'; groupPage(m[1]); }
-  else if ((m = path.match(/^\/(?:g|s)\/(\d+)\/?$/))) { setTitle('Squad'); groupPage(m[1]); }
+  else if ((m = path.match(/^\/(?:g|s)\/(\d+)\/?$/))) { setTitle('Squad'); groupTab = 'board'; groupPage(m[1]); }
   else if ((m = path.match(/^\/join\/([^/]+)\/?$/))) { setTitle('Invite'); joinPage(decodeURIComponent(m[1])); }
   else { setTitle(''); home(); }
   setTimeout(refreshUnread, 1500); // opening a post/tab clears its notifications server-side; refresh the badge
@@ -1558,6 +1796,8 @@ document.addEventListener('click', (e) => {
   if (t) { period = t.dataset.period; if (rerender) rerender(); return; }
   const nf = e.target.closest('[data-nid]');
   if (nf && auth.token) api('/api/notifications/read', { method: 'POST', body: { ids: [Number(nf.dataset.nid)] } }).catch(() => {});
+  const sm = e.target.closest('[data-sqmode]');
+  if (sm) { dirState.mode = sm.dataset.sqmode; document.querySelectorAll('[data-sqmode]').forEach((b) => b.setAttribute('aria-selected', b === sm)); loadDirectory(); return; }
   const gfc = e.target.closest('[data-gfcat]');
   if (gfc) { gForum.category = gfc.dataset.gfcat; document.querySelectorAll('[data-gfcat]').forEach((b) => b.setAttribute('aria-selected', b === gfc)); loadGroupForum(); return; }
   const fc = e.target.closest('[data-fcat]');
@@ -1583,6 +1823,7 @@ document.addEventListener('click', (e) => {
     setAuth(null, null); toast('Signed out'); route();
   } else if (name === 'photo') { if (currentProfile && ownsProfile(currentProfile)) openPhotoModal(currentProfile); }
   else if (name === 'links') { e.preventDefault(); if (currentProfile && ownsProfile(currentProfile)) openLinksModal(currentProfile); }
+  else if (name.startsWith('sq-')) squadAction(name, act);
   else if (name.startsWith('f-') || ['g-new-post', 'c-new-thread', 'n-readall'].includes(name)) forumAction(name, act);
   else if (name.startsWith('log-')) logAction(name, act);
   else groupAction(name, act);
