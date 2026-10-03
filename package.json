@@ -1,0 +1,20 @@
+{
+  "name": "leetsquad",
+  "version": "1.0.0",
+  "description": "A fun LeetCode leaderboard for you and your friends",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "backup": "node --no-warnings scripts/backup.js",
+    "worker": "node --no-warnings scripts/sync-all.js",
+    "migrate": "node --no-warnings scripts/migrate-to-turso.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0"
+  }
+}

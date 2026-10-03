@@ -1,0 +1,37 @@
+name: sync
+
+# The background worker: pulls fresh LeetCode / Codeforces / GitHub data into the database every ~10 minutes
+# (and immediately when the site asks for a refresh), plus the daily problem-rating refresh.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Sync everyone who is due
+        run: node scripts/sync-all.js
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          SECRET_KEY_HEX: ${{ secrets.SECRET_KEY_HEX }}
+          CLIST_USERNAME: ${{ secrets.CLIST_USERNAME }}
+          CLIST_API_KEY: ${{ secrets.CLIST_API_KEY }}
+          TZ_NAME: ${{ vars.TZ_NAME }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
