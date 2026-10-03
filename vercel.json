@@ -18,7 +18,7 @@
     },
     {
       "source": "/healthz",
-      "destination": "/api/healthz"
+      "destination": "/api"
     },
     {
       "source": "/((?!api/)(?!.*\\.[a-zA-Z0-9]+$).*)",
