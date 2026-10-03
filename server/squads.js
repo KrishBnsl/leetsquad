@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { db } from './db.js';
 import { HttpError } from './http-error.js';
 import { dayOf, dayAdd, loadDays, leaderboardEntry, avatarFor } from './stats.js';
+import { notify, unreadBySquad } from './notifications.js';
 
 const SESSION_TTL_S = 90 * 86400;
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L
@@ -92,7 +93,8 @@ export async function listSquads(username) {
       (SELECT COUNT(*) FROM squad_members m WHERE m.squad_id = s.id) AS members,
       (SELECT COUNT(*) FROM challenges c WHERE c.squad_id = s.id AND c.start_day <= ? AND c.end_day >= ?) AS active
     FROM squads s JOIN squad_members me ON me.squad_id = s.id WHERE me.username = ? ORDER BY s.created_at DESC`, today, today, username);
-  return rows.map((s) => squadView(s, username, { members: s.members, activeChallenges: s.active }));
+  const unread = await unreadBySquad(username);
+  return rows.map((s) => squadView(s, username, { members: s.members, activeChallenges: s.active, unread: unread.get(s.id) || 0 }));
 }
 
 export const squadMembers = (squadId) =>
@@ -113,16 +115,27 @@ export async function regenerateCode(squad, username) {
 export async function leaveSquad(squad, username) {
   if (squad.owner.toLowerCase() === username.toLowerCase())
     throw new HttpError(400, 'You own this group — delete it or remove everyone else first');
-  await db.run('DELETE FROM squad_members WHERE squad_id = ? AND username = ?', squad.id, username);
+  await db.batch([
+    ['DELETE FROM squad_members WHERE squad_id = ? AND username = ?', squad.id, username],
+    ['DELETE FROM notifications WHERE squad_id = ? AND username = ?', squad.id, username],
+  ]);
 }
 
 export async function removeMember(squad, owner, target) {
   assertOwner(squad, owner);
   if (target.toLowerCase() === owner.toLowerCase()) throw new HttpError(400, 'You can’t remove yourself — delete the group instead');
-  await db.run('DELETE FROM squad_members WHERE squad_id = ? AND username = ?', squad.id, target);
+  await db.batch([
+    ['DELETE FROM squad_members WHERE squad_id = ? AND username = ?', squad.id, target],
+    ['DELETE FROM notifications WHERE squad_id = ? AND username = ?', squad.id, target],
+  ]);
 }
 
 const dropSquadStatements = (id) => [
+  ["DELETE FROM forum_likes WHERE target='reply' AND target_id IN (SELECT id FROM forum_replies WHERE post_id IN (SELECT id FROM forum_posts WHERE squad_id = ?))", id],
+  ["DELETE FROM forum_likes WHERE target='post' AND target_id IN (SELECT id FROM forum_posts WHERE squad_id = ?)", id],
+  ['DELETE FROM forum_replies WHERE post_id IN (SELECT id FROM forum_posts WHERE squad_id = ?)', id],
+  ['DELETE FROM forum_posts WHERE squad_id = ?', id],
+  ['DELETE FROM notifications WHERE squad_id = ?', id],
   ['DELETE FROM challenges WHERE squad_id = ?', id],
   ['DELETE FROM squad_members WHERE squad_id = ?', id],
   ['DELETE FROM squads WHERE id = ?', id],
@@ -195,6 +208,8 @@ export async function createChallenge(squad, creator, body) {
   if (n >= 100) throw new HttpError(400, 'This group has too many challenges — delete an old one first');
   const r = await db.run(`INSERT INTO challenges (squad_id, title, description, creator, start_day, end_day, config_json, created_at)
     VALUES (?,?,?,?,?,?,?,?)`, squad.id, c.title, c.description, creator, c.startDay, c.endDay, JSON.stringify(c.config), now());
+  const members = await db.all('SELECT username FROM squad_members WHERE squad_id = ?', squad.id);
+  await notify(members.map((m) => ({ username: m.username, type: 'challenge_new', actor: creator, squadId: squad.id, challengeId: Number(r.lastInsertRowid), title: c.title })));
   return { id: Number(r.lastInsertRowid) };
 }
 
@@ -207,7 +222,11 @@ export async function requireChallenge(squad, id) {
 export async function deleteChallenge(squad, ch, username) {
   if (ch.creator.toLowerCase() !== username.toLowerCase() && squad.owner.toLowerCase() !== username.toLowerCase())
     throw new HttpError(403, 'Only the challenge creator or group owner can delete it');
-  await db.run('DELETE FROM challenges WHERE id = ?', ch.id);
+  await db.batch([
+    ['UPDATE forum_posts SET challenge_id = NULL WHERE challenge_id = ?', ch.id], // threads stay, as plain group posts
+    ["DELETE FROM notifications WHERE challenge_id = ? AND type = 'challenge_new'", ch.id],
+    ['DELETE FROM challenges WHERE id = ?', ch.id],
+  ]);
 }
 
 // How close a participant is: mandatory per-difficulty minimums first, then any problems fill the rest of the total.

@@ -29,6 +29,7 @@ const I = {
   lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   message: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   thumb: '<path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>',
   help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
@@ -46,10 +47,10 @@ let period = 'week';
 let timer = null;
 
 /* ---------- helpers ---------- */
-const auth = { token: null, username: null, avatar: '' };
+const auth = { token: null, username: null, avatar: '', unread: 0 };
 try { auth.token = localStorage.getItem('ls_token'); auth.username = localStorage.getItem('ls_user'); } catch {}
 function setAuth(token, username) {
-  auth.token = token; auth.username = username; auth.avatar = '';
+  auth.token = token; auth.username = username; auth.avatar = ''; auth.unread = 0;
   try {
     if (token) { localStorage.setItem('ls_token', token); localStorage.setItem('ls_user', username); }
     else { localStorage.removeItem('ls_token'); localStorage.removeItem('ls_user'); }
@@ -58,6 +59,7 @@ function setAuth(token, username) {
 async function refreshMe() {
   try { const me = await api('/api/me'); auth.avatar = me.avatar || ''; } catch { /* signed out */ }
   renderNav();
+  refreshUnread();
 }
 async function api(path, opts = {}) {
   const headers = { 'content-type': 'application/json' };
@@ -795,6 +797,7 @@ async function groupsPage() {
     const cards = groups.map((g) => `<a class="card gcard" href="/g/${g.id}" data-link>
       <div class="gico">${icon('users')}</div><div class="gname">${esc(g.name)}</div>
       <div class="chips"><span class="chip">${plural(g.members, 'member')}</span>
+        ${g.unread ? `<span class="chip st-up">${icon('bell')} ${g.unread} new</span>` : ''}
         ${g.activeChallenges ? `<span class="chip st-active">${plural(g.activeChallenges, 'live challenge')}</span>` : ''}
         ${g.isOwner ? `<span class="chip">${icon('award')} Owner</span>` : ''}</div></a>`).join('');
     app.innerHTML = `<section class="hero"><h1>Your <span class="hl">groups</span></h1><p>Separate leaderboards and challenges for each of your crews.</p>
@@ -855,24 +858,37 @@ function renderGroup(d) {
       ${g.isOwner ? '<button class="btn btn-small btn-ghost" data-act="new-code">New code</button>' : ''}</div></section>
   <div class="tabs maintabs" role="tablist" style="margin-top:22px">
     <button class="tab" role="tab" data-gtab="board" aria-selected="${groupTab === 'board'}">Leaderboard</button>
-    <button class="tab" role="tab" data-gtab="challenges" aria-selected="${groupTab === 'challenges'}">Challenges${active ? ` <span class="count">${active}</span>` : ''}</button></div>
+    <button class="tab" role="tab" data-gtab="challenges" aria-selected="${groupTab === 'challenges'}">Challenges${active ? ` <span class="count">${active}</span>` : ''}</button>
+    <button class="tab" role="tab" data-gtab="discussion" aria-selected="${groupTab === 'discussion'}">Discussion${d.unread ? ` <span class="count">${d.unread}</span>` : ''}</button></div>
   ${groupTab === 'board' ? boardHtml(d.users, d.feed, { syncing, below: manage })
+    : groupTab === 'discussion' ? `<div class="sec-head"><h2>${hi('message', '#dbe9ff')} Discussion <small class="muted" style="font:600 14px var(--body)">${icon('lock')} members only</small></h2>
+        <button class="btn btn-pink btn-small" data-act="g-new-post">${icon('plus')} New post</button></div>
+      ${forumToolbar(gForum, { catAttr: 'data-gfcat', qId: 'gfq', sortId: 'gfsort' })}
+      <div id="gflist"><div class="skeleton"></div><div class="skeleton"></div></div><div id="gfmore" style="text-align:center;margin-top:16px"></div>`
     : `<div class="sec-head"><h2>${hi('target', '#e1d2ff')} Challenges</h2><button class="btn btn-pink btn-small" data-act="new-challenge">${icon('plus')} New challenge</button></div>${challenges}`}`;
+
+  if (groupTab === 'discussion') {
+    if (gForum.groupId !== g.id) Object.assign(gForum, makeForumState({ groupId: g.id })); // switched groups: start clean
+    bindToolbar(gForum, { qId: 'gfq', sortId: 'gfsort' }, loadGroupForum);
+    loadGroupForum();
+    if (d.unread) api('/api/notifications/read', { method: 'POST', body: { squadId: g.id } }).then((r) => { auth.unread = r.unread; renderNav(); document.querySelector('[data-gtab="discussion"] .count')?.remove(); }).catch(() => {});
+  }
 }
 
 async function groupPage(id) {
   app.innerHTML = '<div class="skeleton"></div>'.repeat(4);
   if (!auth.username) return groupsPage();
+  const here = location.pathname;
   const load = async () => {
     const d = await api(`/api/groups/${id}`);
-    if (location.pathname === `/g/${id}`) renderGroup(d);
+    if (location.pathname === here) renderGroup(d);
     return d;
   };
   try {
     let d = await load();
     const poll = async () => {
-      if (location.pathname !== `/g/${id}`) return;
-      if (isSyncing(d.users)) { try { d = await load(); } catch {} }
+      if (location.pathname !== here) return;
+      if (isSyncing(d.users) && groupTab !== 'discussion') { try { d = await load(); } catch {} }
       timer = setTimeout(poll, 4000);
     };
     timer = setTimeout(poll, 4000);
@@ -985,7 +1001,7 @@ function openChallengeModal(d) {
 }
 
 /* ----- challenge page ----- */
-function renderChallenge(c) {
+function renderChallenge(c, threads = []) {
   const t = c.config, mine = c.standings.find((r) => r.username.toLowerCase() === c.me.toLowerCase());
   let pace = '';
   if (mine && c.status === 'active' && !mine.completed) {
@@ -1014,15 +1030,24 @@ function renderChallenge(c) {
   <section class="card" style="margin-top:22px"><h2>${hi('list', '#d3f8e6')} The goal</h2><div class="chips">${reqChips(t)}</div>
     <p class="muted" style="margin:12px 0 0;font-size:14px">${t.topics.length ? 'Only problems tagged with these topics count. ' : ''}Each distinct problem with an Accepted submission during the dates counts once — re-solves too. Data refreshes every 30 minutes.</p></section>
   ${pace}
-  <div class="rows" style="margin-top:22px">${rows}</div>`;
+  <div class="rows" style="margin-top:22px">${rows}</div>
+  <section class="card" style="margin-top:26px"><h2>${hi('message', '#dbe9ff')} Discussion <small>${plural(threads.length, 'thread')}</small>
+      <button class="btn btn-pink btn-small" style="margin-left:12px" data-act="c-new-thread" data-group="${c.group.id}" data-groupname="${esc(c.group.name)}" data-challenge="${c.id}" data-title="${esc(c.title)}">${icon('plus')} Start a thread</button></h2>
+    ${threads.length ? `<div class="contests">${threads.slice(0, 6).map((p) => `<a class="crow" href="/forum/${p.id}" data-link><div class="cn"><b>${esc(p.title)}</b><span class="muted">${esc(p.name || p.author)} · ${ago(p.lastActivity)}</span></div>
+        <div class="cr"><b>${p.replyCount}</b><span class="muted">${p.replyCount === 1 ? 'reply' : 'replies'}</span></div></a>`).join('')}</div>
+      ${threads.length > 6 ? `<p class="muted fine"><a href="/g/${c.group.id}/discussion" data-link style="text-decoration:underline">See all in the group discussion</a></p>` : ''}`
+      : '<p class="muted" style="margin:0">No threads yet — share tips, ask for help, or trash-talk (kindly) about this challenge. Only your group can see it.</p>'}</section>`;
 }
 
 async function challengePage(gid, cid) {
   app.innerHTML = '<div class="skeleton"></div>'.repeat(3);
   if (!auth.username) return groupsPage();
   try {
-    const c = await api(`/api/groups/${gid}/challenges/${cid}`);
-    if (location.pathname === `/g/${gid}/c/${cid}`) renderChallenge(c);
+    const [c, threads] = await Promise.all([
+      api(`/api/groups/${gid}/challenges/${cid}`),
+      api(`/api/groups/${gid}/forum/posts?challenge=${cid}&sort=active`).catch(() => ({ posts: [] })),
+    ]);
+    if (location.pathname === `/g/${gid}/c/${cid}`) renderChallenge(c, threads.posts);
   } catch (e) {
     app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/groups" data-link>My groups</a></div>`;
   }
@@ -1182,7 +1207,9 @@ const CAT_META = {
   Discussion: { color: '#dbe9ff', icon: 'message', label: 'Discussion', blurb: 'Anything else worth talking about.' },
 };
 const FORUM_SORTS = [['active', 'Latest activity'], ['new', 'Newest'], ['top', 'Most liked'], ['unanswered', 'Unanswered']];
-const forumState = { category: '', sort: 'active', q: '', posts: [], page: 1, hasMore: false };
+const makeForumState = (extra = {}) => ({ category: '', sort: 'active', q: '', posts: [], page: 1, hasMore: false, ...extra });
+const forumState = makeForumState();
+let gForum = makeForumState({ groupId: null }); // the open group's discussion
 let forumCurrent = null; // the post page being viewed: { post, replies, viewer }
 
 // Plain text -> safe HTML: escape everything first, then add ```code blocks```, `inline code`, links and line breaks.
@@ -1215,46 +1242,60 @@ function postCard(p) {
     <div class="fstat${p.solved ? ' ok' : p.replyCount ? ' has' : ''}"><b>${p.solved ? icon('check') : p.replyCount}</b><span>${p.solved ? 'solved' : p.replyCount === 1 ? 'reply' : 'replies'}</span></div>
     <div class="fmain"><div class="ftitle">${esc(p.title)}</div>
       ${p.excerpt ? `<div class="fexcerpt">${esc(p.excerpt.replace(/```[a-z0-9+#.-]*\n?/gi, '').replace(/\s+/g, ' ').slice(0, 150))}</div>` : ''}
-      <div class="fmeta">${catChip(p.category)}${p.tags.map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}
+      <div class="fmeta">${catChip(p.category)}${p.challengeTitle ? `<span class="chip">${icon('target')} ${esc(p.challengeTitle)}</span>` : ''}${p.tags.map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}
         <span class="fwho">${person(p)} · ${ago(p.lastActivity)}</span></div></div></a>`;
 }
 
-function renderForumList() {
-  const list = $('#flist');
+// One list implementation for the public forum, a group's discussion and a challenge's threads.
+function renderPosts(state, v) {
+  const list = $(v.list);
   if (!list) return;
-  list.innerHTML = forumState.posts.length ? forumState.posts.map(postCard).join('')
-    : `<div class="card empty"><span class="big">${icon('message')}</span><h3>${forumState.q || forumState.category ? 'Nothing matches that' : 'No posts yet'}</h3>
-        <p class="muted">${forumState.q || forumState.category ? 'Try a different filter or search.' : 'Be the first — ask a doubt or share how your week went.'}</p></div>`;
-  $('#fmore').innerHTML = forumState.hasMore ? '<button class="btn btn-yellow" data-act="f-more">Load more</button>' : '';
+  list.innerHTML = state.posts.length ? state.posts.map(postCard).join('')
+    : `<div class="card empty"><span class="big">${icon('message')}</span><h3>${state.q || state.category ? 'Nothing matches that' : 'No posts yet'}</h3>
+        <p class="muted">${state.q || state.category ? 'Try a different filter or search.' : v.empty}</p></div>`;
+  $(v.more).innerHTML = state.hasMore ? `<button class="btn btn-yellow" data-act="${v.moreAct}">Load more</button>` : '';
 }
 
-async function loadForum(append = false) {
-  const q = new URLSearchParams({ category: forumState.category, sort: forumState.sort, q: forumState.q, page: append ? forumState.page + 1 : 1 });
+async function loadPosts(state, url, v, append = false) {
+  const q = new URLSearchParams({ category: state.category, sort: state.sort, q: state.q, page: append ? state.page + 1 : 1 });
   try {
-    const d = await api(`/api/forum/posts?${q}`);
-    forumState.posts = append ? forumState.posts.concat(d.posts) : d.posts;
-    forumState.page = d.page; forumState.hasMore = d.hasMore;
-    renderForumList();
-  } catch (e) { const l = $('#flist'); if (l) l.innerHTML = `<div class="card empty"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
+    const d = await api(`${url}${url.includes('?') ? '&' : '?'}${q}`);
+    state.posts = append ? state.posts.concat(d.posts) : d.posts;
+    state.page = d.page; state.hasMore = d.hasMore;
+    renderPosts(state, v);
+  } catch (e) { const l = $(v.list); if (l) l.innerHTML = `<div class="card empty"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
+}
+
+const PUBLIC_VIEW = { list: '#flist', more: '#fmore', moreAct: 'f-more', empty: 'Be the first — ask a doubt or share how your week went.' };
+const GROUP_VIEW = { list: '#gflist', more: '#gfmore', moreAct: 'f-gmore', empty: 'Start the conversation — only your group can see this.' };
+const loadForum = (append = false) => loadPosts(forumState, '/api/forum/posts', PUBLIC_VIEW, append);
+const loadGroupForum = (append = false) => loadPosts(gForum, `/api/groups/${gForum.groupId}/forum/posts`, GROUP_VIEW, append);
+
+// Category tabs + search + sort. `data-` attribute prefix differs per list so their click handlers don't collide.
+function forumToolbar(state, { catAttr, qId, sortId }) {
+  const tabs = [['', 'All'], ...Object.entries(CAT_META).map(([k, v]) => [k, v.label])];
+  return `<div class="tabrow" style="margin-top:14px"><div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" ${catAttr}="${k}" aria-selected="${k === state.category}">${l}</button>`).join('')}</div>
+    <div class="forumtools"><input type="search" id="${qId}" placeholder="Search posts…" value="${esc(state.q)}" aria-label="Search posts" maxlength="60">
+      <select id="${sortId}" aria-label="Sort">${FORUM_SORTS.map(([k, l]) => `<option value="${k}"${k === state.sort ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>`;
+}
+function bindToolbar(state, { qId, sortId }, reload) {
+  let t;
+  $(`#${qId}`).addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { state.q = e.target.value.trim(); reload(); }, 350); });
+  $(`#${sortId}`).addEventListener('change', (e) => { state.sort = e.target.value; reload(); });
 }
 
 function forumPage() {
-  const tabs = [['', 'All'], ...Object.entries(CAT_META).map(([k, v]) => [k, v.label])];
   app.innerHTML = `<section class="hero"><h1>The <span class="hl">forum</span></h1>
-    <p>Ask doubts, share your progress, get feedback. Be kind — everyone here is learning.</p>
+    <p>Ask doubts, share your progress, get feedback. Be kind — everyone here is learning. Looking for something private? Every group has its own discussion tab.</p>
     <div class="stats-strip"><button class="btn btn-pink" data-act="f-new">${icon('plus')} New post</button></div></section>
-    <div class="tabrow" style="margin-top:20px"><div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" data-fcat="${k}" aria-selected="${k === forumState.category}">${l}</button>`).join('')}</div>
-      <div class="forumtools"><input type="search" id="fq" placeholder="Search posts…" value="${esc(forumState.q)}" aria-label="Search posts" maxlength="60">
-        <select id="fsort" aria-label="Sort">${FORUM_SORTS.map(([k, l]) => `<option value="${k}"${k === forumState.sort ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    ${forumToolbar(forumState, { catAttr: 'data-fcat', qId: 'fq', sortId: 'fsort' })}
     <div id="flist"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div><div id="fmore" style="text-align:center;margin-top:16px"></div>`;
-  let t;
-  $('#fq').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { forumState.q = e.target.value.trim(); loadForum(); }, 350); });
-  $('#fsort').addEventListener('change', (e) => { forumState.sort = e.target.value; loadForum(); });
+  bindToolbar(forumState, { qId: 'fq', sortId: 'fsort' }, loadForum);
   loadForum();
 }
 
 /* ----- single post ----- */
-const canModerate = (v, author) => v && (v.isAdmin || v.username.toLowerCase() === author.toLowerCase());
+const canModerate = (d, author) => d.viewer && (d.moderator || d.viewer.username.toLowerCase() === author.toLowerCase());
 const likeBtn = (target, id, count, liked, own) =>
   `<button class="likebtn${liked ? ' on' : ''}" data-act="f-like" data-target="${target}" data-id="${id}" aria-pressed="${liked}" ${own ? 'disabled title="You can’t like your own post"' : ''}>${icon('thumb')} <span>${count}</span></button>`;
 
@@ -1271,12 +1312,12 @@ function renderForumPost(d) {
       <div class="factions">${likeBtn('reply', r.id, r.likeCount, r.liked, rMine)}
         ${mine && p.category === 'Doubt' ? `<button class="btn btn-small ${r.accepted ? 'btn-ghost' : 'btn-mint'}" data-act="f-accept" data-reply="${r.accepted ? '' : r.id}">${icon('check')} ${r.accepted ? 'Unaccept' : 'Accept answer'}</button>` : ''}
         ${rMine ? `<button class="iconbtn" data-act="f-edit-reply" data-id="${r.id}" aria-label="Edit reply" title="Edit">${icon('pencil')}</button>` : ''}
-        ${canModerate(viewer, r.author) ? `<button class="iconbtn" data-act="f-del-reply" data-id="${r.id}" aria-label="Delete reply" title="Delete">${icon('trash')}</button>` : ''}</div></article>`;
+        ${canModerate(d, r.author) ? `<button class="iconbtn" data-act="f-del-reply" data-id="${r.id}" aria-label="Delete reply" title="Delete">${icon('trash')}</button>` : ''}</div></article>`;
   }).join('');
 
-  app.innerHTML = `<a class="back" href="/forum" data-link>← Forum</a>
+  app.innerHTML = `<a class="back" href="${p.squadId ? `/g/${p.squadId}/discussion` : '/forum'}" data-link>← ${p.squadId ? `${esc(p.squadName || 'Group')} · Discussion` : 'Forum'}</a>
     <article class="card fpostfull">
-      <div class="fhead">${catChip(p.category)}${p.solved ? `<span class="chip st-active">${icon('check')} Solved</span>` : ''}</div>
+      <div class="fhead">${catChip(p.category)}${p.squadId ? `<span class="chip">${icon('lock')} Private to ${esc(p.squadName || 'this group')}</span>` : ''}${p.challengeId && p.challengeTitle ? `<a class="chip" href="/g/${p.squadId}/c/${p.challengeId}" data-link>${icon('target')} ${esc(p.challengeTitle)}</a>` : ''}${p.solved ? `<span class="chip st-active">${icon('check')} Solved</span>` : ''}</div>
       <h1 class="ptitle">${esc(p.title)}</h1>
       <div class="fby"><a href="/u/${encodeURIComponent(p.author)}" data-link>${person(p)}</a><span class="muted">${ago(p.createdAt)}${p.updatedAt > p.createdAt + 60 ? ' · edited' : ''}</span></div>
       <div class="fbody">${renderBody(p.body)}</div>
@@ -1284,7 +1325,7 @@ function renderForumPost(d) {
       ${p.tags.length ? `<div class="chips">${p.tags.map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}</div>` : ''}
       <div class="factions">${likeBtn('post', p.id, p.likeCount, p.liked, mine)}
         ${mine ? `<button class="iconbtn" data-act="f-edit-post" aria-label="Edit post" title="Edit">${icon('pencil')}</button>` : ''}
-        ${canModerate(viewer, p.author) ? `<button class="iconbtn" data-act="f-del-post" aria-label="Delete post" title="Delete">${icon('trash')}</button>` : ''}</div>
+        ${canModerate(d, p.author) ? `<button class="iconbtn" data-act="f-del-post" aria-label="Delete post" title="Delete">${icon('trash')}</button>` : ''}</div>
     </article>
     <div class="sec-head" style="margin-top:26px"><h2>${hi('message', '#dbe9ff')} ${plural(replies.length, 'reply').replace(/^0 replies$/, 'No replies yet')}</h2></div>
     <div class="replies">${replyHtml}</div>
@@ -1310,16 +1351,19 @@ async function forumPostPage(id, keepScroll = false) {
     document.title = `${d.post.title} · LeetSquad`;
     renderForumPost(d);
   } catch (e) {
-    app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/forum" data-link>Back to the forum</a></div>`;
+    app.innerHTML = auth.username
+      ? `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/forum" data-link>Back to the forum</a></div>`
+      : `<div class="card empty" style="margin-top:28px"><span class="big">${icon('lock')}</span><h3>This post might be private</h3><p class="muted">If it belongs to one of your groups, sign in to see it.</p><button class="btn btn-pink" data-join data-title="Sign in">Sign in</button></div>`;
   }
 }
 
 /* ----- composer / editors ----- */
-function openPostModal(post = null, prefill = null) {
+function openPostModal(post = null, prefill = null, scope = null) {
   const start = post || prefill || {};
   let cat = start.category || 'Doubt';
   const picked = new Set(start.tags || []);
-  const { close, el } = showModal(`<h2>${post ? 'Edit post' : 'New post'}</h2>
+  const { close, el } = showModal(`<h2>${post ? 'Edit post' : scope?.challengeTitle ? 'New thread' : 'New post'}</h2>
+    ${scope ? `<p class="muted" style="margin:0">${icon('lock')} Only members of <b>${esc(scope.groupName)}</b> can see this${scope.challengeTitle ? ` · about <b>${esc(scope.challengeTitle)}</b>` : ''}.</p>` : ''}
     <form autocomplete="off" id="post-form">
       <div class="field"><label>What kind of post?</label><div class="topic-pick catpick">${Object.entries(CAT_META).map(([k, v]) =>
         `<button type="button" class="chip tp" data-cat="${k}" style="--c:${v.color}" aria-pressed="${k === cat}">${icon(v.icon)} ${k}</button>`).join('')}</div>
@@ -1349,7 +1393,12 @@ function openPostModal(post = null, prefill = null) {
     const body = { category: cat, title: f.title.value, body: f.body.value, tags: [...picked], link: f.link.value };
     try {
       if (post) { await api(`/api/forum/posts/${post.id}`, { method: 'PUT', body }); close(); toast('Post updated'); forumPostPage(post.id, true); }
-      else { const r = await api('/api/forum/posts', { method: 'POST', body }); close(); confetti(); toast('Posted!'); navigate(`/forum/${r.id}`); }
+      else {
+        const r = scope
+          ? await api(`/api/groups/${scope.squadId}/forum/posts`, { method: 'POST', body: { ...body, challengeId: scope.challengeId ?? null } })
+          : await api('/api/forum/posts', { method: 'POST', body });
+        close(); confetti(); toast('Posted!'); navigate(`/forum/${r.id}`);
+      }
     } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
   });
 }
@@ -1370,6 +1419,12 @@ async function forumAction(name, el) {
   const d = forumCurrent;
   if (name === 'f-new') return needSignIn(() => openPostModal(), 'post in the forum');
   if (name === 'f-more') return loadForum(true);
+  if (name === 'f-gmore') return loadGroupForum(true);
+  if (name === 'g-new-post' && current) return openPostModal(null, null, { squadId: current.group.id, groupName: current.group.name });
+  if (name === 'c-new-thread') return openPostModal(null, { category: 'Discussion' }, { squadId: Number(el.dataset.group), groupName: el.dataset.groupname, challengeId: Number(el.dataset.challenge), challengeTitle: el.dataset.title });
+  if (name === 'n-readall') {
+    return api('/api/notifications/read', { method: 'POST', body: { all: true } }).then((r) => { auth.unread = r.unread; renderNav(); notificationsPage(); }).catch((e) => toast(e.message));
+  }
   if (name === 'f-share') {
     const p = currentProfile;
     return needSignIn(() => openPostModal(null, {
@@ -1391,17 +1446,60 @@ async function forumAction(name, el) {
   const run = async (fn, msg) => { try { await fn(); toast(msg); } catch (e) { toast(e.message); } };
   if (name === 'f-accept') return run(async () => { await api(`/api/forum/posts/${d.post.id}/accept`, { method: 'POST', body: { replyId: el.dataset.reply ? Number(el.dataset.reply) : null } }); forumPostPage(d.post.id, true); }, el.dataset.reply ? 'Marked as the accepted answer' : 'Answer unaccepted');
   if (name === 'f-del-post' && await confirmBox('Delete this post?', 'The post and all its replies will be removed.', 'Delete'))
-    return run(async () => { await api(`/api/forum/posts/${d.post.id}`, { method: 'DELETE' }); navigate('/forum'); }, 'Post deleted');
+    return run(async () => { await api(`/api/forum/posts/${d.post.id}`, { method: 'DELETE' }); navigate(d.post.squadId ? `/g/${d.post.squadId}/discussion` : '/forum'); }, 'Post deleted');
   if (name === 'f-del-reply' && await confirmBox('Delete this reply?', 'This can’t be undone.', 'Delete'))
     return run(async () => { await api(`/api/forum/replies/${el.dataset.id}`, { method: 'DELETE' }); forumPostPage(d.post.id, true); }, 'Reply deleted');
 }
 
 /* ---------- nav ---------- */
+async function refreshUnread() {
+  if (!auth.token) return;
+  try { const r = await api('/api/notifications/count'); if (r.unread !== auth.unread) { auth.unread = r.unread; renderNav(); } } catch { /* offline / signed out */ }
+}
+setInterval(() => { if (!document.hidden) refreshUnread(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshUnread(); });
+
+const NOTIF_ICON = { reply: 'message', thread_reply: 'message', like: 'thumb', accepted: 'check', group_post: 'users', challenge_thread: 'target', challenge_new: 'target' };
+const NOTIF_COLOR = { reply: '#dbe9ff', thread_reply: '#dbe9ff', like: '#ffd0e1', accepted: '#c9f7e3', group_post: '#e1d2ff', challenge_thread: '#fff3b0', challenge_new: '#fff3b0' };
+function notifText(n) {
+  const who = `<b>${esc(n.name || n.actor || 'Someone')}</b>`, t = n.title ? `“${esc(n.title)}”` : 'a post', grp = `<b>${esc(n.squadName || 'your group')}</b>`;
+  switch (n.type) {
+    case 'reply': return `${who} replied to your post ${t}`;
+    case 'thread_reply': return `${who} also replied on ${t}`;
+    case 'accepted': return `${who} accepted your answer on ${t}`;
+    case 'like': return n.replyId ? `${who} liked your reply on ${t}` : `${who} liked your post ${t}`;
+    case 'group_post': return `${who} posted in ${grp}: ${t}`;
+    case 'challenge_thread': return `${who} started a thread on <b>${esc(n.challengeTitle || 'a challenge')}</b> in ${grp}: ${t}`;
+    case 'challenge_new': return `${who} started a challenge in ${grp}: ${t}`;
+    default: return `${who} did something in ${grp}`;
+  }
+}
+const notifHref = (n) => (n.type === 'challenge_new' ? `/g/${n.squadId}/c/${n.challengeId}` : `/forum/${n.postId}`);
+
+async function notificationsPage() {
+  if (!auth.username) {
+    app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('bell')}</span><h3>Sign in to see your notifications</h3><button class="btn btn-pink" data-join data-title="Sign in">Sign in</button></div>`;
+    return;
+  }
+  app.innerHTML = '<div class="skeleton"></div>'.repeat(3);
+  try {
+    const d = await api('/api/notifications');
+    auth.unread = d.unread; renderNav();
+    app.innerHTML = `<section class="hero"><h1>Notifications</h1><p>Replies to your posts, answers you gave that were accepted, and what’s happening in your groups.</p>
+      ${d.unread ? `<div class="stats-strip"><button class="btn btn-small btn-yellow" data-act="n-readall">${icon('check')} Mark all as read</button></div>` : ''}</section>
+      <div class="notifs">${d.items.length ? d.items.map((n) => `<a class="card notif${n.read ? '' : ' unread'}" href="${notifHref(n)}" data-link data-nid="${n.id}">
+        <span class="nico" style="background:${NOTIF_COLOR[n.type] || '#eee'}">${icon(NOTIF_ICON[n.type] || 'bell')}</span>
+        <div class="ntext"><div>${notifText(n)}</div><div class="muted">${ago(n.createdAt)}</div></div>${n.read ? '' : '<span class="udot" aria-label="Unread"></span>'}</a>`).join('')
+        : `<div class="card empty"><span class="big">${icon('bell')}</span><h3>All quiet</h3><p class="muted">When someone replies to you or posts in one of your groups, it shows up here.</p></div>`}</div>`;
+  } catch (e) { app.innerHTML = `<div class="card empty"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
+}
+
 function renderNav() {
   const onGroups = /^\/(groups|g\/|join\/)/.test(location.pathname);
   const onForum = location.pathname.startsWith('/forum');
   $('#nav').innerHTML = `<a class="navlink${onForum ? ' on' : ''}" href="/forum" data-link>${icon('message')} Forum</a><a class="navlink${onGroups ? ' on' : ''}" href="/groups" data-link>${icon('users')} Groups</a>` + (auth.username
-    ? `<a class="mepill" href="/u/${encodeURIComponent(auth.username)}" data-link title="Your profile">${avatar({ username: auth.username, avatar: auth.avatar }, 'mini')}<span class="mename">${esc(auth.username)}</span></a>
+    ? `<a class="navlink bell${location.pathname === '/notifications' ? ' on' : ''}" href="/notifications" data-link aria-label="Notifications${auth.unread ? `, ${auth.unread} unread` : ''}" title="Notifications">${icon('bell')}${auth.unread ? `<span class="badge">${auth.unread > 99 ? '99+' : auth.unread}</span>` : ''}</a>
+       <a class="mepill" href="/u/${encodeURIComponent(auth.username)}" data-link title="Your profile">${avatar({ username: auth.username, avatar: auth.avatar }, 'mini')}<span class="mename">${esc(auth.username)}</span></a>
        <button class="btn btn-small btn-ghost" data-act="sign-out">Sign out</button>`
     : `<button class="btn btn-pink" data-join data-title="Sign in">Sign in</button>`);
 }
@@ -1421,17 +1519,24 @@ function route() {
   if ((m = path.match(/^\/u\/([^/]+)\/?$/))) { setTitle(decodeURIComponent(m[1])); profilePage(decodeURIComponent(m[1])); }
   else if (/^\/forum\/?$/.test(path)) { setTitle('Forum'); forumPage(); }
   else if ((m = path.match(/^\/forum\/(\d+)\/?$/))) { setTitle('Forum'); forumPostPage(m[1]); }
+  else if (/^\/notifications\/?$/.test(path)) { setTitle('Notifications'); notificationsPage(); }
   else if (/^\/groups\/?$/.test(path)) { setTitle('Groups'); groupsPage(); }
   else if ((m = path.match(/^\/g\/(\d+)\/c\/(\d+)\/?$/))) { setTitle('Challenge'); challengePage(m[1], m[2]); }
+  else if ((m = path.match(/^\/g\/(\d+)\/discussion\/?$/))) { setTitle('Group discussion'); groupTab = 'discussion'; groupPage(m[1]); }
   else if ((m = path.match(/^\/g\/(\d+)\/?$/))) { setTitle('Group'); groupPage(m[1]); }
   else if ((m = path.match(/^\/join\/([^/]+)\/?$/))) { setTitle('Invite'); joinPage(decodeURIComponent(m[1])); }
   else { setTitle(''); home(); }
+  setTimeout(refreshUnread, 1500); // opening a post/tab clears its notifications server-side; refresh the badge
 }
 document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-link]');
   if (a && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) { e.preventDefault(); navigate(a.getAttribute('href')); return; }
   const t = e.target.closest('[data-period]');
   if (t) { period = t.dataset.period; if (rerender) rerender(); return; }
+  const nf = e.target.closest('[data-nid]');
+  if (nf && auth.token) api('/api/notifications/read', { method: 'POST', body: { ids: [Number(nf.dataset.nid)] } }).catch(() => {});
+  const gfc = e.target.closest('[data-gfcat]');
+  if (gfc) { gForum.category = gfc.dataset.gfcat; document.querySelectorAll('[data-gfcat]').forEach((b) => b.setAttribute('aria-selected', b === gfc)); loadGroupForum(); return; }
   const fc = e.target.closest('[data-fcat]');
   if (fc) { forumState.category = fc.dataset.fcat; document.querySelectorAll('[data-fcat]').forEach((b) => b.setAttribute('aria-selected', b === fc)); loadForum(); return; }
   const sc = e.target.closest('[data-source]');
@@ -1455,7 +1560,7 @@ document.addEventListener('click', (e) => {
     setAuth(null, null); toast('Signed out'); route();
   } else if (name === 'photo') { if (currentProfile && ownsProfile(currentProfile)) openPhotoModal(currentProfile); }
   else if (name === 'links') { e.preventDefault(); if (currentProfile && ownsProfile(currentProfile)) openLinksModal(currentProfile); }
-  else if (name.startsWith('f-')) forumAction(name, act);
+  else if (name.startsWith('f-') || ['g-new-post', 'c-new-thread', 'n-readall'].includes(name)) forumAction(name, act);
   else if (name.startsWith('log-')) logAction(name, act);
   else groupAction(name, act);
 });

@@ -13,7 +13,7 @@ export const DATA_DIR = IS_TURSO ? null : (process.env.DATA_DIR || path.join(roo
 if (DATA_DIR) fs.mkdirSync(DATA_DIR, { recursive: true });
 initKey(DATA_DIR);
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const DDL = `
 CREATE TABLE IF NOT EXISTS users (
   username     TEXT PRIMARY KEY COLLATE NOCASE,
@@ -140,9 +140,13 @@ CREATE TABLE IF NOT EXISTS forum_posts (
   last_activity     INTEGER NOT NULL,
   accepted_reply_id INTEGER,
   reply_count       INTEGER NOT NULL DEFAULT 0,
-  like_count        INTEGER NOT NULL DEFAULT 0
+  like_count        INTEGER NOT NULL DEFAULT 0,
+  squad_id          INTEGER,
+  challenge_id      INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_fp_activity ON forum_posts(last_activity);
+CREATE INDEX IF NOT EXISTS idx_fp_squad ON forum_posts(squad_id, last_activity);
+CREATE INDEX IF NOT EXISTS idx_fp_challenge ON forum_posts(challenge_id);
 CREATE INDEX IF NOT EXISTS idx_fp_cat ON forum_posts(category, last_activity);
 CREATE INDEX IF NOT EXISTS idx_fp_author ON forum_posts(author);
 CREATE TABLE IF NOT EXISTS forum_replies (
@@ -163,6 +167,21 @@ CREATE TABLE IF NOT EXISTS forum_likes (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (target, target_id, username)
 );
+CREATE TABLE IF NOT EXISTS notifications (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  username     TEXT NOT NULL COLLATE NOCASE,
+  type         TEXT NOT NULL,
+  actor        TEXT,
+  post_id      INTEGER,
+  reply_id     INTEGER,
+  squad_id     INTEGER,
+  challenge_id INTEGER,
+  title        TEXT,
+  created_at   INTEGER NOT NULL,
+  read_at      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(username, read_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_notif_post ON notifications(post_id);
 CREATE TABLE IF NOT EXISTS rate_hits (
   key TEXT NOT NULL,
   ts  INTEGER NOT NULL
@@ -223,6 +242,11 @@ async function ensureSchema() {
   const alters = [];
   if (await hasTable('submissions') && !(await cols('submissions')).includes('platform')) alters.push("ALTER TABLE submissions ADD COLUMN platform TEXT NOT NULL DEFAULT 'leetcode'");
   if (await hasTable('questions') && !(await cols('questions')).includes('rating')) alters.push('ALTER TABLE questions ADD COLUMN rating INTEGER');
+  if (await hasTable('forum_posts')) {
+    const fc = await cols('forum_posts');
+    if (!fc.includes('squad_id')) alters.push('ALTER TABLE forum_posts ADD COLUMN squad_id INTEGER');
+    if (!fc.includes('challenge_id')) alters.push('ALTER TABLE forum_posts ADD COLUMN challenge_id INTEGER');
+  }
   for (const sql of alters) { try { await backend.run(sql, []); } catch { /* another instance got there first */ } }
   await backend.batch(DDL.map((s) => [s, []]));
   await backend.run("INSERT INTO kv (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [String(SCHEMA_VERSION)]);

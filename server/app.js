@@ -11,6 +11,7 @@ import { HttpError } from './http-error.js';
 import * as sq from './squads.js';
 import * as act from './activities.js';
 import * as forum from './forum.js';
+import * as notif from './notifications.js';
 
 const REFRESH_COOLDOWN_S = 120;
 const SECURITY_HEADERS = {
@@ -282,12 +283,12 @@ const routes = [
     const me = await requireAuth(req);
     const squad = await sq.requireSquad(m[1], me);
     const board = await sq.squadBoard(squad);
-    const [statuses, recent, challenges] = await Promise.all([
-      getSyncStatuses(), feed(25, board.members.map((u) => u.username)), sq.challengeSummaries(squad, board, me),
+    const [statuses, recent, challenges, unreadMap] = await Promise.all([
+      getSyncStatuses(), feed(25, board.members.map((u) => u.username)), sq.challengeSummaries(squad, board, me), notif.unreadBySquad(me),
     ]);
     return {
       group: { id: squad.id, name: squad.name, code: squad.code, owner: squad.owner, isOwner: squad.owner.toLowerCase() === me.toLowerCase() },
-      me, tz: TZ, users: board.users.map((e) => withSync(e, statuses)), feed: recent, challenges,
+      me, tz: TZ, users: board.users.map((e) => withSync(e, statuses)), feed: recent, challenges, unread: unreadMap.get(squad.id) || 0,
     };
   }],
 
@@ -352,7 +353,9 @@ const routes = [
   }],
   ['GET', /^\/api\/forum\/posts\/(\d+)$/, async (req, m) => {
     const viewer = await optionalAuth(req);
-    return { ...(await forum.getPost(m[1], viewer)), viewer: viewer ? { username: viewer, isAdmin: forum.isAdmin(viewer) } : null };
+    const data = await forum.getPost(m[1], viewer);
+    if (viewer) await notif.markRead(viewer, { postId: m[1] }); // reading a thread clears its notifications
+    return { ...data, viewer: viewer ? { username: viewer, isAdmin: forum.isAdmin(viewer) } : null };
   }],
   ['PUT', /^\/api\/forum\/posts\/(\d+)$/, async (req, m) => {
     await forum.updatePost(await requireAuth(req), m[1], await readJson(req, 20_000));
@@ -373,6 +376,31 @@ const routes = [
     return { ok: true };
   }],
   ['DELETE', /^\/api\/forum\/replies\/(\d+)$/, async (req, m) => { await forum.deleteReply(await requireAuth(req), m[1]); return { deleted: true }; }],
+  /* ----- group discussion (members only) & challenge threads ----- */
+  ['GET', /^\/api\/groups\/(\d+)\/forum\/posts$/, async (req, m) => {
+    const me = await requireAuth(req);
+    const squad = await sq.requireSquad(m[1], me);
+    const q = new URL(req.url, 'http://x').searchParams;
+    return forum.listPosts({ category: q.get('category'), sort: q.get('sort'), q: q.get('q'), page: q.get('page'), squadId: squad.id,
+      challengeId: q.get('challenge') ? Number(q.get('challenge')) : null }, me);
+  }],
+  ['POST', /^\/api\/groups\/(\d+)\/forum\/posts$/, async (req, m) => {
+    const me = await requireAuth(req);
+    const squad = await sq.requireSquad(m[1], me);
+    await rateLimitKey(`post:${me}`, 10);
+    const body = await readJson(req, 20_000);
+    return forum.createPost(me, body, { squadId: squad.id, challengeId: body.challengeId ?? null });
+  }],
+
+  /* ----- notifications ----- */
+  ['GET', /^\/api\/notifications$/, async (req) => notif.listFor(await requireAuth(req))],
+  ['GET', /^\/api\/notifications\/count$/, async (req) => ({ unread: await notif.unreadCount(await requireAuth(req)) })],
+  ['POST', /^\/api\/notifications\/read$/, async (req) => {
+    const me = await requireAuth(req);
+    await notif.markRead(me, await readJson(req));
+    return { unread: await notif.unreadCount(me) };
+  }],
+
   ['POST', /^\/api\/forum\/like$/, async (req) => {
     const me = await requireAuth(req);
     await rateLimitKey(`like:${me}`, 150);
