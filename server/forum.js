@@ -123,8 +123,8 @@ export async function getPost(id, viewer) {
 export async function createPost(username, body, { squadId = null, challengeId = null } = {}) {
   const p = parsePost(body);
   if (squadId != null) {
-    if (!(await memberOf(squadId, username))) throw new HttpError(404, 'Group not found');
-  } else if (challengeId != null) bad('Challenge threads belong to a group');
+    if (!(await memberOf(squadId, username))) throw new HttpError(404, 'Squad not found');
+  } else if (challengeId != null) bad('Challenge threads belong to a squad');
   let challenge = null;
   if (challengeId != null) {
     challenge = await db.get('SELECT id, title FROM challenges WHERE id = ? AND squad_id = ?', Number(challengeId), Number(squadId));

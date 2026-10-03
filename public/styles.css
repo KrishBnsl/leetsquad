@@ -442,3 +442,19 @@ pre.code code { background: none; padding: 0; color: inherit; }
 .ntext { min-width: 0; line-height: 1.35; } .ntext .muted { font-size: 13px; }
 .udot { width: 12px; height: 12px; border-radius: 50%; background: var(--pink); border: 2.5px solid var(--ink); }
 .chip.st-up .ic { width: 12px; height: 12px; }
+
+/* ---------- home hero: text + squad pulse ---------- */
+.herogrid { grid-template-columns: minmax(0, 1.05fr) minmax(300px, .95fr); gap: 34px; align-items: center; padding-top: 22px; }
+.heroL { display: grid; gap: 14px; }
+.heroL .stats-strip { margin-top: 6px; }
+.pulse { padding: 18px 20px 16px; transform: rotate(.6deg); background: linear-gradient(160deg, #fff, #fff7e0 120%); }
+.pulse h2 { font-size: 20px; margin-bottom: 12px; } .pulse h2 small { font-weight: 600; }
+.pnums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+.pnums div { border: 2.5px solid var(--ink); border-radius: 14px; padding: 8px 6px; text-align: center; background: #fff3b0; }
+.pnums div:nth-child(2) { background: #d3f8e6; } .pnums div:nth-child(3) { background: #ffd9e6; }
+.pnums b { display: block; font: 700 28px/1.05 var(--display); } .pnums span { font-size: 11px; font-weight: 800; color: rgba(29,27,58,.65); text-transform: uppercase; letter-spacing: .04em; }
+.pchart rect.b { fill: var(--purple); stroke: var(--ink); stroke-width: 1.5; } .pchart rect.z { fill: #ede8f7; } .pchart rect.today { fill: var(--yellow); stroke: var(--ink); stroke-width: 1.5; }
+.pleader { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; padding: 8px 12px; border: 2px dashed var(--ink); border-radius: 12px; text-decoration: none; font-size: 14px; background: #fff; }
+.pleader .ic { width: 18px; height: 18px; color: #e08a00; } .pleader .avatar.mini { width: 26px; height: 26px; font-size: 12px; }
+a.pleader:hover { background: #fff0f6; }
+@media (max-width: 900px) { .herogrid { grid-template-columns: 1fr; } .pulse { transform: none; } }

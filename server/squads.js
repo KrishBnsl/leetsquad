@@ -42,7 +42,7 @@ export const isMember = async (squadId, username) =>
 
 export async function requireSquad(id, username) {
   const squad = await db.get('SELECT * FROM squads WHERE id = ?', Number(id));
-  if (!squad || !(await isMember(squad.id, username))) throw new HttpError(404, 'Group not found');
+  if (!squad || !(await isMember(squad.id, username))) throw new HttpError(404, 'Squad not found');
   return squad;
 }
 
@@ -53,9 +53,9 @@ const squadView = (s, username, extra = {}) => ({
 
 export async function createSquad(name, owner) {
   name = String(name || '').trim();
-  if (!name || name.length > 40) throw new HttpError(400, 'Give your group a name (max 40 characters)');
+  if (!name || name.length > 40) throw new HttpError(400, 'Give your squad a name (max 40 characters)');
   const mine = (await db.get('SELECT COUNT(*) AS n FROM squad_members WHERE username = ?', owner)).n;
-  if (mine >= 20) throw new HttpError(400, 'You’re in the maximum number of groups (20)');
+  if (mine >= 20) throw new HttpError(400, 'You’re in the maximum number of squads (20)');
   const code = await newCode();
   // One atomic batch: the squad and its first member (the owner).
   await db.batch([
@@ -68,20 +68,20 @@ export async function createSquad(name, owner) {
 export async function previewByCode(code) {
   const s = await db.get(`SELECT s.name, s.owner, (SELECT COUNT(*) FROM squad_members m WHERE m.squad_id = s.id) AS members
     FROM squads s WHERE s.code = ?`, normalizeCode(code));
-  if (!s) throw new HttpError(404, 'That invite code doesn’t match any group');
+  if (!s) throw new HttpError(404, 'That invite code doesn’t match any squad');
   return { name: s.name, owner: s.owner, members: s.members };
 }
 
 export async function joinByCode(code, username) {
   const s = await db.get('SELECT * FROM squads WHERE code = ?', normalizeCode(code));
-  if (!s) throw new HttpError(404, 'That invite code doesn’t match any group');
+  if (!s) throw new HttpError(404, 'That invite code doesn’t match any squad');
   if (!(await isMember(s.id, username))) {
     const [count, mine] = await Promise.all([
       db.get('SELECT COUNT(*) AS n FROM squad_members WHERE squad_id = ?', s.id),
       db.get('SELECT COUNT(*) AS n FROM squad_members WHERE username = ?', username),
     ]);
-    if (count.n >= 100) throw new HttpError(400, 'This group is full');
-    if (mine.n >= 20) throw new HttpError(400, 'You’re in the maximum number of groups (20)');
+    if (count.n >= 100) throw new HttpError(400, 'This squad is full');
+    if (mine.n >= 20) throw new HttpError(400, 'You’re in the maximum number of squads (20)');
     await db.run('INSERT INTO squad_members (squad_id, username, joined_at) VALUES (?,?,?)', s.id, username, now());
   }
   return squadView(s, username);
@@ -102,7 +102,7 @@ export const squadMembers = (squadId) =>
     WHERE m.squad_id = ? ORDER BY m.joined_at`, squadId);
 
 export function assertOwner(squad, username) {
-  if (squad.owner.toLowerCase() !== username.toLowerCase()) throw new HttpError(403, 'Only the group owner can do that');
+  if (squad.owner.toLowerCase() !== username.toLowerCase()) throw new HttpError(403, 'Only the squad owner can do that');
 }
 
 export async function regenerateCode(squad, username) {
@@ -114,7 +114,7 @@ export async function regenerateCode(squad, username) {
 
 export async function leaveSquad(squad, username) {
   if (squad.owner.toLowerCase() === username.toLowerCase())
-    throw new HttpError(400, 'You own this group — delete it or remove everyone else first');
+    throw new HttpError(400, 'You own this squad — delete it or remove everyone else first');
   await db.batch([
     ['DELETE FROM squad_members WHERE squad_id = ? AND username = ?', squad.id, username],
     ['DELETE FROM notifications WHERE squad_id = ? AND username = ?', squad.id, username],
@@ -123,7 +123,7 @@ export async function leaveSquad(squad, username) {
 
 export async function removeMember(squad, owner, target) {
   assertOwner(squad, owner);
-  if (target.toLowerCase() === owner.toLowerCase()) throw new HttpError(400, 'You can’t remove yourself — delete the group instead');
+  if (target.toLowerCase() === owner.toLowerCase()) throw new HttpError(400, 'You can’t remove yourself — delete the squad instead');
   await db.batch([
     ['DELETE FROM squad_members WHERE squad_id = ? AND username = ?', squad.id, target],
     ['DELETE FROM notifications WHERE squad_id = ? AND username = ?', squad.id, target],
@@ -205,7 +205,7 @@ export function parseChallenge(b) {
 export async function createChallenge(squad, creator, body) {
   const c = parseChallenge(body);
   const n = (await db.get('SELECT COUNT(*) AS n FROM challenges WHERE squad_id = ?', squad.id)).n;
-  if (n >= 100) throw new HttpError(400, 'This group has too many challenges — delete an old one first');
+  if (n >= 100) throw new HttpError(400, 'This squad has too many challenges — delete an old one first');
   const r = await db.run(`INSERT INTO challenges (squad_id, title, description, creator, start_day, end_day, config_json, created_at)
     VALUES (?,?,?,?,?,?,?,?)`, squad.id, c.title, c.description, creator, c.startDay, c.endDay, JSON.stringify(c.config), now());
   const members = await db.all('SELECT username FROM squad_members WHERE squad_id = ?', squad.id);
@@ -221,7 +221,7 @@ export async function requireChallenge(squad, id) {
 
 export async function deleteChallenge(squad, ch, username) {
   if (ch.creator.toLowerCase() !== username.toLowerCase() && squad.owner.toLowerCase() !== username.toLowerCase())
-    throw new HttpError(403, 'Only the challenge creator or group owner can delete it');
+    throw new HttpError(403, 'Only the challenge creator or squad owner can delete it');
   await db.batch([
     ['UPDATE forum_posts SET challenge_id = NULL WHERE challenge_id = ?', ch.id], // threads stay, as plain group posts
     ["DELETE FROM notifications WHERE challenge_id = ? AND type = 'challenge_new'", ch.id],

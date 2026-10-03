@@ -152,7 +152,7 @@ const routes = [
 
   ['GET', /^\/api\/users\/([^/]+)$/, async (req, m) => {
     const p = await profile(decodeURIComponent(m[1]));
-    if (!p) throw new HttpError(404, 'No such user on the squad');
+    if (!p) throw new HttpError(404, 'No such user on the leaderboard');
     const [statuses, log] = await Promise.all([getSyncStatuses(), act.logSummary(p.username, p.today)]);
     const entry = withSync(p, statuses);
     await wakeWorkerIfNeeded([entry]);

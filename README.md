@@ -1,6 +1,6 @@
 # 🏆 LeetSquad
 
-A playful leaderboard for you and your friends: LeetCode, Codeforces and GitHub activity, private groups with
+A playful leaderboard for you and your friends: LeetCode, Codeforces and GitHub activity, private squads with
 invite codes, configurable challenges, contest ratings, and a log for everything else you work on.
 
 Zero build step. Runs two ways from the same code:
@@ -93,17 +93,17 @@ with *Actions: Read and write*.
   Post types: Doubt (the asker can accept one reply as the answer), Progress, Feedback, Discussion; optional topic tags and a
   related link; replies, likes, search, sorting, and ```code blocks```. Authors edit/delete their own content.
   Spam limits: 10 posts / 40 replies / 150 likes per account per hour.
-  - **Group discussion** — every group has a *Discussion* tab, visible to members only (non-members get a plain "not found"
-    and group posts never appear in the public forum). The group owner moderates it.
-  - **Challenge threads** — start a thread from any challenge page; it lives in the group discussion, tagged with the challenge.
+  - **Squad discussion** — every squad has a *Discussion* tab, visible to members only (non-members get a plain "not found"
+    and squad posts never appear in the public forum). The squad owner moderates it.
+  - **Challenge threads** — start a thread from any challenge page; it lives in the squad discussion, tagged with the challenge.
   - **Public forum moderation** — set `ADMIN_USERS=name1,name2` (Vercel env var, or `.env` locally) to let those accounts
-    delete anything in the *public* forum. Site admins have no special access to private groups.
-  - Deleting your account removes your posts and replies; deleting a group removes its discussion.
+    delete anything in the *public* forum. Site admins have no special access to private squads.
+  - Deleting your account removes your posts and replies; deleting a squad removes its discussion.
 - **Notifications** (bell in the nav, `/notifications`) — replies to your posts, replies in threads you joined, accepted
-  answers, likes, new group posts, challenge threads and new challenges. Opening a post or a group's Discussion tab marks
-  its notifications read; unread counts show on the bell and on each group. The badge refreshes about once a minute
+  answers, likes, new squad posts, challenge threads and new challenges. Opening a post or a squad's Discussion tab marks
+  its notifications read; unread counts show on the bell and on each squad. The badge refreshes about once a minute
   (no live push). Old notifications are pruned after 60 days.
-- **Groups & challenges** — private leaderboards by invite code; challenges with total/min-Easy/Medium/Hard, topics,
+- **Squads & challenges** — private leaderboards by invite code; challenges with total/min-Easy/Medium/Hard, topics,
   platforms and dates.
 - Codeforces/GitHub handles are **not verified** as belonging to whoever links them.
 

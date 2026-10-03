@@ -201,7 +201,7 @@ const isSyncing = (users) => users.some((u) => u.sync.state === 'syncing' || u.s
 
 let rerender = null; // re-renders the current leaderboard view (used by the period tabs)
 
-// Tabs + podium + ranked rows + live feed. Shared by the global board and group boards.
+// Tabs + podium + ranked rows + live feed. Shared by the global board and squad boards.
 function boardHtml(allUsers, feedList, { syncing = false, below = '' } = {}) {
   const ranked = allUsers.filter((u) => u.modes[source]);
   const hidden = allUsers.length - ranked.length;
@@ -250,31 +250,51 @@ function boardHtml(allUsers, feedList, { syncing = false, below = '' } = {}) {
     <aside class="sticky"><div class="card"><h2>${hi('zap', '#fff3b0')} Live feed</h2><div class="feed">${feed}</div></div></aside></div>`;
 }
 
+// Combined daily activity for the last 14 days (today highlighted).
+function pulseChart(vals) {
+  const W = 320, H = 96, max = Math.max(3, ...vals), bw = W / vals.length;
+  const bars = vals.map((v, i) => {
+    const h = v ? Math.max(6, (v / max) * (H - 26)) : 4;
+    return `<rect class="${i === vals.length - 1 ? 'today' : v ? 'b' : 'z'}" x="${i * bw + 3}" y="${H - 14 - h}" width="${bw - 6}" height="${h}" rx="4"><title>${i === vals.length - 1 ? 'Today' : `${vals.length - 1 - i}d ago`}: ${plural(v, 'problem')}</title></rect>`;
+  }).join('');
+  return `<svg class="pchart axis" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Problems solved per day, last 14 days">${bars}
+    <text x="3" y="${H - 2}">14 days ago</text><text x="${W - 3}" y="${H - 2}" text-anchor="end">today</text></svg>`;
+}
+
 function renderHome(data) {
   rerender = () => renderHome(data);
   const todayCount = data.users.reduce((s, u) => s + u.modes.overall.periods.today.count, 0);
   const weekCount = data.users.reduce((s, u) => s + u.modes.overall.periods.week.count, 0);
   const bestStreak = Math.max(0, ...data.users.map((u) => u.modes.overall.streak));
 
-  const hero = `<section class="hero">
-    <h1>Who’s grinding <span class="hl">today</span>? <span class="wave">${icon('hand')}</span></h1>
-    <p>Points scale with difficulty — about 1 for Easy up to 6 for Hard, more for rated monsters — on LeetCode and Codeforces. Solve more, climb higher, flex responsibly.</p>
-    <div class="stats-strip">
-      <div class="pill"><span class="ico">${icon('check')}</span>${todayCount} solved today</div>
-      <div class="pill"><span class="ico">${icon('trendUp')}</span>${weekCount} this week</div>
-      <div class="pill"><span class="ico">${icon('flame')}</span>${bestStreak}-day best streak</div>
-    </div></section>`;
+  const spark = Array(14).fill(0);
+  data.users.forEach((u) => u.modes.overall.spark.forEach((v, i) => { spark[i] += v; }));
+  const leader = [...data.users].sort((x, y) => y.modes.overall.periods.week.points - x.modes.overall.periods.week.points)[0];
+  const lp = leader?.modes.overall.periods.week.points || 0;
+  const ctas = auth.username
+    ? `<a class="btn btn-pink" href="/squads" data-link>${icon('users')} Your squads</a><a class="btn btn-yellow" href="/forum" data-link>${icon('message')} Forum</a>`
+    : `<button class="btn btn-pink" data-join data-title="Sign in">${icon('plus')} Join the leaderboard</button><a class="btn btn-yellow" href="/forum" data-link>${icon('message')} Browse the forum</a>`;
+
+  const hero = `<section class="hero herogrid">
+    <div class="heroL"><h1>Who’s grinding <span class="hl">today</span>? <span class="wave">${icon('hand')}</span></h1>
+      <p>Points scale with difficulty — about 1 for Easy up to 6 for Hard, more for rated monsters — on LeetCode and Codeforces. Solve more, climb higher, flex responsibly.</p>
+      <div class="stats-strip">${ctas}</div></div>
+    <aside class="card pulse" aria-label="Squad pulse"><h2>${hi('zap', '#fff3b0')} Squad pulse <small>everyone combined</small></h2>
+      <div class="pnums"><div><b>${todayCount}</b><span>solved today</span></div><div><b>${weekCount}</b><span>this week</span></div><div><b>${bestStreak}</b><span>day best streak</span></div></div>
+      ${pulseChart(spark)}
+      ${lp > 0 ? `<a class="pleader" href="/u/${encodeURIComponent(leader.username)}" data-link>${icon('trophy')} ${avatar(leader, 'mini')}<span><b>${esc(leader.name || leader.username)}</b> leads this week · <b>${lp}</b> pts</span></a>`
+        : '<p class="muted pleader">Nobody has points yet this week — be the first on the board.</p>'}</aside></section>`;
 
   if (!data.users.length) {
-    app.innerHTML = hero + `<div class="card empty" style="margin-top:24px"><span class="big">${icon('users')}</span><h3>The squad is empty!</h3>
-      <p class="muted">Be the first to hop on the leaderboard.</p><button class="btn btn-pink" data-join data-title="Join the squad" data-button="Add me!">${icon('plus')} Join the squad</button></div>`;
+    app.innerHTML = hero + `<div class="card empty" style="margin-top:24px"><span class="big">${icon('users')}</span><h3>The leaderboard is empty!</h3>
+      <p class="muted">Be the first to hop on the leaderboard.</p><button class="btn btn-pink" data-join data-title="Join LeetSquad" data-button="Add me!">${icon('plus')} Join LeetSquad</button></div>`;
     return;
   }
   app.innerHTML = hero + boardHtml(data.users, data.feed, { syncing: isSyncing(data.users) });
 }
 
 async function home() {
-  app.innerHTML = '<div class="hero"><h1>Loading the squad…</h1></div>' + '<div class="skeleton"></div>'.repeat(3);
+  app.innerHTML = '<div class="hero"><h1>Loading the leaderboard…</h1></div>' + '<div class="skeleton"></div>'.repeat(3);
   const load = async () => {
     const data = await api('/api/leaderboard');
     if (location.pathname === '/') renderHome(data);
@@ -542,7 +562,7 @@ function openLinksModal(p) {
     <form autocomplete="off" id="links-form">
       <div class="field"><label for="k-cf">Codeforces handle</label><input id="k-cf" name="codeforces" maxlength="24" placeholder="e.g. tourist" value="${esc(p.links?.codeforces?.handle || '')}"></div>
       <div class="field"><label for="k-gh">GitHub username</label><input id="k-gh" name="github" maxlength="39" placeholder="e.g. torvalds" value="${esc(p.links?.github?.handle || '')}"></div>
-      <div class="privacy">${icon('lock')} Handles aren’t verified as yours, so be honest — everyone in your groups sees them. Data refreshes automatically (GitHub about hourly).</div>
+      <div class="privacy">${icon('lock')} Handles aren’t verified as yours, so be honest — everyone in your squads sees them. Data refreshes automatically (GitHub about hourly).</div>
       <div class="err" hidden></div>
       <div class="btns"><button type="button" class="btn btn-ghost" data-cancel>Cancel</button><button class="btn btn-pink" id="k-go">Save</button></div></form>`);
   el.querySelector('#k-cf').focus();
@@ -597,7 +617,7 @@ function renderProfile(p) {
   ${tabs}
   ${body}
 
-  <div class="danger"><button class="btn btn-ghost btn-small" data-remove>Remove me from the squad</button></div>`;
+  <div class="danger"><button class="btn btn-ghost btn-small" data-remove>Remove me from LeetSquad</button></div>`;
 
   $('#refresh')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
@@ -650,7 +670,7 @@ function openModal(mode = 'join', username = '', onDone = null, ctx = {}) {
   const remove = mode === 'remove';
   const root = $('#modal-root');
   root.innerHTML = `<div class="overlay" data-close><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt">
-    <h2 id="mt">${esc(remove ? 'Leave the squad' : ctx.title || 'Sign in')}</h2>
+    <h2 id="mt">${esc(remove ? 'Leave LeetSquad' : ctx.title || 'Sign in')}</h2>
     <p class="muted" style="margin:0">${remove ? 'Prove it’s you with your session cookie and we’ll delete your data and stored cookie.' : ctx.text || 'Enter your LeetCode username and cookies. If you’re new, this also adds you to the leaderboard; if you’re already on it, it just signs you in on this device.'}</p>
     <form id="join-form" autocomplete="off">
       <div class="field"><label for="f-user">LeetCode username</label><input id="f-user" name="username" required maxlength="40" placeholder="e.g. neetcode" value="${esc(username)}" ${remove ? 'readonly' : ''}></div>
@@ -682,12 +702,12 @@ function openModal(mode = 'join', username = '', onDone = null, ctx = {}) {
       if (remove) {
         await api(`/api/users/${encodeURIComponent(f.username)}`, { method: 'DELETE', body: f });
         close(); if (auth.username && auth.username.toLowerCase() === f.username.toLowerCase()) { setAuth(null, null); renderNav(); }
-        toast('You’re off the squad. Come back soon!'); navigate('/');
+        toast('You’re off LeetSquad. Come back soon!'); navigate('/');
       } else {
         const r = await api('/api/users', { method: 'POST', body: f });
         setAuth(r.token, r.username); close(); await refreshMe();
         if (!r.updated) confetti();
-        toast(r.updated ? `Signed in as ${r.username}` : `Welcome to the squad, ${r.username}!`);
+        toast(r.updated ? `Signed in as ${r.username}` : `Welcome to LeetSquad, ${r.username}!`);
         if (onDone) onDone();
         else if (r.updated) route();
         else navigate(`/u/${encodeURIComponent(r.username)}`);
@@ -730,7 +750,7 @@ function needSignIn(after, why = 'continue') {
   if (auth.username) return after();
   openModal('join', '', () => { route(); after(); }, {
     title: `Sign in to ${why}`,
-    text: 'Groups are tied to your LeetCode account, so we need to know it’s you. Enter your username and cookies — if you’re new, this also adds you to the leaderboard.',
+    text: 'Squads are tied to your LeetCode account, so we need to know it’s you. Enter your username and cookies — if you’re new, this also adds you to the leaderboard.',
   });
 }
 
@@ -771,39 +791,39 @@ function promptModal({ title, text, label, placeholder, button, maxlength = 40, 
 }
 
 const openCreateGroup = () => needSignIn(() => promptModal({
-  title: 'Create a group', text: 'A private leaderboard for you and your friends. You’ll get an invite code to share.',
-  label: 'Group name', placeholder: 'e.g. Hostel 4 Grinders', button: 'Create group',
-  onSubmit: async (name) => { const r = await api('/api/groups', { method: 'POST', body: { name } }); confetti(); toast('Group created!'); navigate(`/g/${r.group.id}`); },
-}), 'create a group');
+  title: 'Create a squad', text: 'A private leaderboard for you and your friends. You’ll get an invite code to share.',
+  label: 'Squad name', placeholder: 'e.g. Hostel 4 Grinders', button: 'Create squad',
+  onSubmit: async (name) => { const r = await api('/api/groups', { method: 'POST', body: { name } }); confetti(); toast('Squad created!'); navigate(`/s/${r.group.id}`); },
+}), 'create a squad');
 const openJoinCode = (prefill = '') => needSignIn(() => promptModal({
-  title: 'Join with an invite code', text: 'Ask a friend for their group’s 8-character code.',
-  label: 'Invite code', placeholder: 'ABCD-EFGH', button: 'Join group', maxlength: 12,
-  onSubmit: async (code) => { const r = await api('/api/groups/join', { method: 'POST', body: { code } }); toast(`You’re in ${r.group.name}!`); navigate(`/g/${r.group.id}`); },
-}), 'join a group');
+  title: 'Join with an invite code', text: 'Ask a friend for their squad’s 8-character code.',
+  label: 'Invite code', placeholder: 'ABCD-EFGH', button: 'Join squad', maxlength: 12,
+  onSubmit: async (code) => { const r = await api('/api/groups/join', { method: 'POST', body: { code } }); toast(`You’re in ${r.group.name}!`); navigate(`/s/${r.group.id}`); },
+}), 'join a squad');
 
 /* ----- groups list ----- */
 async function groupsPage() {
   if (!auth.username) {
-    app.innerHTML = `<section class="hero"><h1>Your <span class="hl">groups</span></h1>
+    app.innerHTML = `<section class="hero"><h1>Your <span class="hl">squads</span></h1>
       <p>Private leaderboards and challenges for you and your friends — separate from the global board.</p>
-      <div class="stats-strip"><button class="btn btn-pink" data-act="create-group">${icon('plus')} Create a group</button>
-      <button class="btn btn-yellow" data-act="join-code">${icon('users')} Join a group</button></div>
-      <p class="muted" style="font-size:14px">Already on the leaderboard? <a href="#" data-join data-title="Sign in" style="text-decoration:underline">Sign in</a> to see your groups.</p></section>`;
+      <div class="stats-strip"><button class="btn btn-pink" data-act="create-group">${icon('plus')} Create a squad</button>
+      <button class="btn btn-yellow" data-act="join-code">${icon('users')} Join a squad</button></div>
+      <p class="muted" style="font-size:14px">Already on the leaderboard? <a href="#" data-join data-title="Sign in" style="text-decoration:underline">Sign in</a> to see your squads.</p></section>`;
     return;
   }
   app.innerHTML = '<div class="skeleton"></div>'.repeat(3);
   try {
     const { groups } = await api('/api/groups');
-    const cards = groups.map((g) => `<a class="card gcard" href="/g/${g.id}" data-link>
+    const cards = groups.map((g) => `<a class="card gcard" href="/s/${g.id}" data-link>
       <div class="gico">${icon('users')}</div><div class="gname">${esc(g.name)}</div>
       <div class="chips"><span class="chip">${plural(g.members, 'member')}</span>
         ${g.unread ? `<span class="chip st-up">${icon('bell')} ${g.unread} new</span>` : ''}
         ${g.activeChallenges ? `<span class="chip st-active">${plural(g.activeChallenges, 'live challenge')}</span>` : ''}
         ${g.isOwner ? `<span class="chip">${icon('award')} Owner</span>` : ''}</div></a>`).join('');
-    app.innerHTML = `<section class="hero"><h1>Your <span class="hl">groups</span></h1><p>Separate leaderboards and challenges for each of your crews.</p>
-      <div class="stats-strip"><button class="btn btn-pink" data-act="create-group">${icon('plus')} Create a group</button>
-      <button class="btn btn-yellow" data-act="join-code">${icon('users')} Join a group</button></div></section>
-      ${groups.length ? `<div class="gridc">${cards}</div>` : `<div class="card empty" style="margin-top:24px"><span class="big">${icon('users')}</span><h3>No groups yet</h3><p class="muted">Create one, or join a friend’s with their invite code.</p></div>`}`;
+    app.innerHTML = `<section class="hero"><h1>Your <span class="hl">squads</span></h1><p>Separate leaderboards and challenges for each of your crews.</p>
+      <div class="stats-strip"><button class="btn btn-pink" data-act="create-group">${icon('plus')} Create a squad</button>
+      <button class="btn btn-yellow" data-act="join-code">${icon('users')} Join a squad</button></div></section>
+      ${groups.length ? `<div class="gridc">${cards}</div>` : `<div class="card empty" style="margin-top:24px"><span class="big">${icon('users')}</span><h3>No squads yet</h3><p class="muted">Create one, or join a friend’s with their invite code.</p></div>`}`;
   } catch (e) { app.innerHTML = `<div class="card empty"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
 }
 
@@ -813,17 +833,17 @@ async function joinPage(code) {
   try {
     const g = await api(`/api/groups/preview/${encodeURIComponent(code)}`);
     const doJoin = async () => {
-      try { const r = await api('/api/groups/join', { method: 'POST', body: { code } }); confetti(); toast(`You’re in ${r.group.name}!`); navigate(`/g/${r.group.id}`); }
+      try { const r = await api('/api/groups/join', { method: 'POST', body: { code } }); confetti(); toast(`You’re in ${r.group.name}!`); navigate(`/s/${r.group.id}`); }
       catch (e) { toast(e.message); }
     };
     app.innerHTML = `<div class="card empty" style="margin:36px auto;max-width:520px"><span class="big">${icon('users')}</span>
       <p class="muted" style="margin:0">You’re invited to join</p><h3>${esc(g.name)}</h3>
       <p class="muted">${plural(g.members, 'member')} · created by @${esc(g.owner)}</p>
-      <button class="btn btn-pink" id="accept">Join group</button></div>`;
+      <button class="btn btn-pink" id="accept">Join squad</button></div>`;
     $('#accept').addEventListener('click', () => needSignIn(doJoin, `join ${g.name}`));
   } catch (e) {
     app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3>
-      <a class="btn btn-yellow" href="/groups" data-link>My groups</a></div>`;
+      <a class="btn btn-yellow" href="/squads" data-link>My squads</a></div>`;
   }
 }
 
@@ -839,19 +859,19 @@ function renderGroup(d) {
       `<span class="chip member">${esc(u.username)}<button data-act="remove-member" data-user="${esc(u.username)}" aria-label="Remove ${esc(u.username)}">×</button></span>`).join('')}</div></div>` : '';
 
   const challenges = d.challenges.length ? `<div class="gridc">${d.challenges.map((c) => `
-    <a class="card ccard" href="/g/${g.id}/c/${c.id}" data-link>
+    <a class="card ccard" href="/s/${g.id}/c/${c.id}" data-link>
       <div class="ctop"><div class="cname">${esc(c.title)}</div>${statusChip(c)}</div>
       <div class="chips">${reqChips(c.config)}</div>
       <div class="muted cdates">${longDay(c.startDay)} → ${longDay(c.endDay)}</div>
       ${c.me ? `<div class="mine"><div class="lbl"><span>Your progress</span><b>${c.me.effective}/${c.config.total}${c.me.completed ? ` ${icon('check')}` : ''}</b></div>${bar(c.me.pct, c.me.completed)}</div>` : ''}
       <div class="muted cfoot">${c.leader && c.leader.effective ? `Leading: <b>@${esc(c.leader.username)}</b> · ` : ''}${c.completedCount}/${c.participants} finished</div></a>`).join('')}</div>`
-    : `<div class="card empty"><span class="big">${icon('target')}</span><h3>No challenges yet</h3><p class="muted">Set a goal for the group — e.g. 30 problems in a week.</p></div>`;
+    : `<div class="card empty"><span class="big">${icon('target')}</span><h3>No challenges yet</h3><p class="muted">Set a goal for the squad — e.g. 30 problems in a week.</p></div>`;
 
   app.innerHTML = `
-  <a class="back" href="/groups" data-link>← All groups</a>
+  <a class="back" href="/squads" data-link>← All squads</a>
   <section class="card banner gbanner"><div class="gico big">${icon('users')}</div>
     <div><h1>${esc(g.name)}</h1><div class="meta"><span class="chip">${plural(d.users.length, 'member')}</span><span class="chip">${icon('award')} Owner @${esc(g.owner)}</span></div></div>
-    <div class="actions">${g.isOwner ? '<button class="btn btn-ghost btn-small" data-act="delete-group">Delete group</button>' : '<button class="btn btn-ghost btn-small" data-act="leave-group">Leave group</button>'}</div></section>
+    <div class="actions">${g.isOwner ? '<button class="btn btn-ghost btn-small" data-act="delete-group">Delete squad</button>' : '<button class="btn btn-ghost btn-small" data-act="leave-group">Leave squad</button>'}</div></section>
   <section class="card invite"><div><div class="k">Invite code</div><div class="code">${fmtCode(g.code)}</div></div>
     <div class="btns"><button class="btn btn-small btn-yellow" data-act="copy-code">Copy code</button>
       <button class="btn btn-small" data-act="copy-link">Copy invite link</button>
@@ -893,7 +913,7 @@ async function groupPage(id) {
     };
     timer = setTimeout(poll, 4000);
   } catch (e) {
-    app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/groups" data-link>My groups</a></div>`;
+    app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/squads" data-link>My squads</a></div>`;
   }
 }
 
@@ -905,15 +925,15 @@ async function groupAction(act, el) {
   if (act === 'copy-link') return copy(`${location.origin}/join/${g.code}`, 'Invite link copied');
   if (act === 'new-code' && await confirmBox('Generate a new code?', 'The old code and invite link will stop working. Existing members stay.', 'New code'))
     return run(async () => { await api(`/api/groups/${g.id}/code`, { method: 'POST' }); route(); }, 'New invite code ready');
-  if (act === 'delete-group' && await confirmBox('Delete this group?', 'The leaderboard and all its challenges will be gone for everyone.', 'Delete group'))
-    return run(async () => { await api(`/api/groups/${g.id}`, { method: 'DELETE' }); navigate('/groups'); }, 'Group deleted');
-  if (act === 'leave-group' && await confirmBox('Leave this group?', 'You can rejoin later with the invite code.', 'Leave'))
-    return run(async () => { await api(`/api/groups/${g.id}/leave`, { method: 'POST' }); navigate('/groups'); }, 'You left the group');
+  if (act === 'delete-group' && await confirmBox('Delete this squad?', 'The leaderboard and all its challenges will be gone for everyone.', 'Delete squad'))
+    return run(async () => { await api(`/api/groups/${g.id}`, { method: 'DELETE' }); navigate('/squads'); }, 'Squad deleted');
+  if (act === 'leave-group' && await confirmBox('Leave this squad?', 'You can rejoin later with the invite code.', 'Leave'))
+    return run(async () => { await api(`/api/groups/${g.id}/leave`, { method: 'POST' }); navigate('/squads'); }, 'You left the squad');
   if (act === 'remove-member' && await confirmBox(`Remove @${el.dataset.user}?`, 'They can rejoin with the invite code unless you generate a new one.', 'Remove'))
     return run(async () => { await api(`/api/groups/${g.id}/members/${encodeURIComponent(el.dataset.user)}`, { method: 'DELETE' }); route(); }, 'Member removed');
   if (act === 'new-challenge') return openChallengeModal(current);
   if (act === 'delete-challenge' && await confirmBox('Delete this challenge?', 'Standings for it will be lost.', 'Delete'))
-    return run(async () => { await api(`/api/groups/${el.dataset.group}/challenges/${el.dataset.id}`, { method: 'DELETE' }); navigate(`/g/${el.dataset.group}`); }, 'Challenge deleted');
+    return run(async () => { await api(`/api/groups/${el.dataset.group}/challenges/${el.dataset.id}`, { method: 'DELETE' }); navigate(`/s/${el.dataset.group}`); }, 'Challenge deleted');
 }
 
 /* ----- create challenge ----- */
@@ -995,7 +1015,7 @@ function openChallengeModal(d) {
     try {
       const r = await api(`/api/groups/${d.group.id}/challenges`, { method: 'POST', body });
       close(); confetti(); toast('Challenge on! Good luck everyone');
-      navigate(`/g/${d.group.id}/c/${r.id}`);
+      navigate(`/s/${d.group.id}/c/${r.id}`);
     } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
   });
 }
@@ -1022,7 +1042,7 @@ function renderChallenge(c, threads = []) {
       <div class="score">${r.completed ? `<span class="chip st-done">${icon('check')} Done</span><small>${ago(r.completedAt)}</small>` : `<b>${r.effective}/${t.total}</b><small>${t.total - r.effective} to go</small>`}</div></a>`;
   }).join('');
 
-  app.innerHTML = `<a class="back" href="/g/${c.group.id}" data-link>← ${esc(c.group.name)}</a>
+  app.innerHTML = `<a class="back" href="/s/${c.group.id}" data-link>← ${esc(c.group.name)}</a>
   <section class="card banner cbanner"><div class="gico big">${icon('target')}</div>
     <div><h1>${esc(c.title)}</h1><div class="meta">${statusChip(c)}<span class="chip">${longDay(c.startDay)} → ${longDay(c.endDay)}</span><span class="chip">by @${esc(c.creator)}</span></div>
       ${c.description ? `<p class="muted" style="margin:10px 0 0">${esc(c.description)}</p>` : ''}</div>
@@ -1035,8 +1055,8 @@ function renderChallenge(c, threads = []) {
       <button class="btn btn-pink btn-small" style="margin-left:12px" data-act="c-new-thread" data-group="${c.group.id}" data-groupname="${esc(c.group.name)}" data-challenge="${c.id}" data-title="${esc(c.title)}">${icon('plus')} Start a thread</button></h2>
     ${threads.length ? `<div class="contests">${threads.slice(0, 6).map((p) => `<a class="crow" href="/forum/${p.id}" data-link><div class="cn"><b>${esc(p.title)}</b><span class="muted">${esc(p.name || p.author)} · ${ago(p.lastActivity)}</span></div>
         <div class="cr"><b>${p.replyCount}</b><span class="muted">${p.replyCount === 1 ? 'reply' : 'replies'}</span></div></a>`).join('')}</div>
-      ${threads.length > 6 ? `<p class="muted fine"><a href="/g/${c.group.id}/discussion" data-link style="text-decoration:underline">See all in the group discussion</a></p>` : ''}`
-      : '<p class="muted" style="margin:0">No threads yet — share tips, ask for help, or trash-talk (kindly) about this challenge. Only your group can see it.</p>'}</section>`;
+      ${threads.length > 6 ? `<p class="muted fine"><a href="/s/${c.group.id}/discussion" data-link style="text-decoration:underline">See all in the squad discussion</a></p>` : ''}`
+      : '<p class="muted" style="margin:0">No threads yet — share tips, ask for help, or trash-talk (kindly) about this challenge. Only your squad can see it.</p>'}</section>`;
 }
 
 async function challengePage(gid, cid) {
@@ -1047,9 +1067,9 @@ async function challengePage(gid, cid) {
       api(`/api/groups/${gid}/challenges/${cid}`),
       api(`/api/groups/${gid}/forum/posts?challenge=${cid}&sort=active`).catch(() => ({ posts: [] })),
     ]);
-    if (location.pathname === `/g/${gid}/c/${cid}`) renderChallenge(c, threads.posts);
+    if (location.pathname === `/s/${gid}/c/${cid}`) renderChallenge(c, threads.posts);
   } catch (e) {
-    app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/groups" data-link>My groups</a></div>`;
+    app.innerHTML = `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/squads" data-link>My squads</a></div>`;
   }
 }
 
@@ -1267,7 +1287,7 @@ async function loadPosts(state, url, v, append = false) {
 }
 
 const PUBLIC_VIEW = { list: '#flist', more: '#fmore', moreAct: 'f-more', empty: 'Be the first — ask a doubt or share how your week went.' };
-const GROUP_VIEW = { list: '#gflist', more: '#gfmore', moreAct: 'f-gmore', empty: 'Start the conversation — only your group can see this.' };
+const GROUP_VIEW = { list: '#gflist', more: '#gfmore', moreAct: 'f-gmore', empty: 'Start the conversation — only your squad can see this.' };
 const loadForum = (append = false) => loadPosts(forumState, '/api/forum/posts', PUBLIC_VIEW, append);
 const loadGroupForum = (append = false) => loadPosts(gForum, `/api/groups/${gForum.groupId}/forum/posts`, GROUP_VIEW, append);
 
@@ -1286,7 +1306,7 @@ function bindToolbar(state, { qId, sortId }, reload) {
 
 function forumPage() {
   app.innerHTML = `<section class="hero"><h1>The <span class="hl">forum</span></h1>
-    <p>Ask doubts, share your progress, get feedback. Be kind — everyone here is learning. Looking for something private? Every group has its own discussion tab.</p>
+    <p>Ask doubts, share your progress, get feedback. Be kind — everyone here is learning. Looking for something private? Every squad has its own discussion tab.</p>
     <div class="stats-strip"><button class="btn btn-pink" data-act="f-new">${icon('plus')} New post</button></div></section>
     ${forumToolbar(forumState, { catAttr: 'data-fcat', qId: 'fq', sortId: 'fsort' })}
     <div id="flist"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div><div id="fmore" style="text-align:center;margin-top:16px"></div>`;
@@ -1315,9 +1335,9 @@ function renderForumPost(d) {
         ${canModerate(d, r.author) ? `<button class="iconbtn" data-act="f-del-reply" data-id="${r.id}" aria-label="Delete reply" title="Delete">${icon('trash')}</button>` : ''}</div></article>`;
   }).join('');
 
-  app.innerHTML = `<a class="back" href="${p.squadId ? `/g/${p.squadId}/discussion` : '/forum'}" data-link>← ${p.squadId ? `${esc(p.squadName || 'Group')} · Discussion` : 'Forum'}</a>
+  app.innerHTML = `<a class="back" href="${p.squadId ? `/s/${p.squadId}/discussion` : '/forum'}" data-link>← ${p.squadId ? `${esc(p.squadName || 'Squad')} · Discussion` : 'Forum'}</a>
     <article class="card fpostfull">
-      <div class="fhead">${catChip(p.category)}${p.squadId ? `<span class="chip">${icon('lock')} Private to ${esc(p.squadName || 'this group')}</span>` : ''}${p.challengeId && p.challengeTitle ? `<a class="chip" href="/g/${p.squadId}/c/${p.challengeId}" data-link>${icon('target')} ${esc(p.challengeTitle)}</a>` : ''}${p.solved ? `<span class="chip st-active">${icon('check')} Solved</span>` : ''}</div>
+      <div class="fhead">${catChip(p.category)}${p.squadId ? `<span class="chip">${icon('lock')} Private to ${esc(p.squadName || 'this squad')}</span>` : ''}${p.challengeId && p.challengeTitle ? `<a class="chip" href="/s/${p.squadId}/c/${p.challengeId}" data-link>${icon('target')} ${esc(p.challengeTitle)}</a>` : ''}${p.solved ? `<span class="chip st-active">${icon('check')} Solved</span>` : ''}</div>
       <h1 class="ptitle">${esc(p.title)}</h1>
       <div class="fby"><a href="/u/${encodeURIComponent(p.author)}" data-link>${person(p)}</a><span class="muted">${ago(p.createdAt)}${p.updatedAt > p.createdAt + 60 ? ' · edited' : ''}</span></div>
       <div class="fbody">${renderBody(p.body)}</div>
@@ -1353,7 +1373,7 @@ async function forumPostPage(id, keepScroll = false) {
   } catch (e) {
     app.innerHTML = auth.username
       ? `<div class="card empty" style="margin-top:28px"><span class="big">${icon('search')}</span><h3>${esc(e.message)}</h3><a class="btn btn-yellow" href="/forum" data-link>Back to the forum</a></div>`
-      : `<div class="card empty" style="margin-top:28px"><span class="big">${icon('lock')}</span><h3>This post might be private</h3><p class="muted">If it belongs to one of your groups, sign in to see it.</p><button class="btn btn-pink" data-join data-title="Sign in">Sign in</button></div>`;
+      : `<div class="card empty" style="margin-top:28px"><span class="big">${icon('lock')}</span><h3>This post might be private</h3><p class="muted">If it belongs to one of your squads, sign in to see it.</p><button class="btn btn-pink" data-join data-title="Sign in">Sign in</button></div>`;
   }
 }
 
@@ -1446,7 +1466,7 @@ async function forumAction(name, el) {
   const run = async (fn, msg) => { try { await fn(); toast(msg); } catch (e) { toast(e.message); } };
   if (name === 'f-accept') return run(async () => { await api(`/api/forum/posts/${d.post.id}/accept`, { method: 'POST', body: { replyId: el.dataset.reply ? Number(el.dataset.reply) : null } }); forumPostPage(d.post.id, true); }, el.dataset.reply ? 'Marked as the accepted answer' : 'Answer unaccepted');
   if (name === 'f-del-post' && await confirmBox('Delete this post?', 'The post and all its replies will be removed.', 'Delete'))
-    return run(async () => { await api(`/api/forum/posts/${d.post.id}`, { method: 'DELETE' }); navigate(d.post.squadId ? `/g/${d.post.squadId}/discussion` : '/forum'); }, 'Post deleted');
+    return run(async () => { await api(`/api/forum/posts/${d.post.id}`, { method: 'DELETE' }); navigate(d.post.squadId ? `/s/${d.post.squadId}/discussion` : '/forum'); }, 'Post deleted');
   if (name === 'f-del-reply' && await confirmBox('Delete this reply?', 'This can’t be undone.', 'Delete'))
     return run(async () => { await api(`/api/forum/replies/${el.dataset.id}`, { method: 'DELETE' }); forumPostPage(d.post.id, true); }, 'Reply deleted');
 }
@@ -1462,7 +1482,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 const NOTIF_ICON = { reply: 'message', thread_reply: 'message', like: 'thumb', accepted: 'check', group_post: 'users', challenge_thread: 'target', challenge_new: 'target' };
 const NOTIF_COLOR = { reply: '#dbe9ff', thread_reply: '#dbe9ff', like: '#ffd0e1', accepted: '#c9f7e3', group_post: '#e1d2ff', challenge_thread: '#fff3b0', challenge_new: '#fff3b0' };
 function notifText(n) {
-  const who = `<b>${esc(n.name || n.actor || 'Someone')}</b>`, t = n.title ? `“${esc(n.title)}”` : 'a post', grp = `<b>${esc(n.squadName || 'your group')}</b>`;
+  const who = `<b>${esc(n.name || n.actor || 'Someone')}</b>`, t = n.title ? `“${esc(n.title)}”` : 'a post', grp = `<b>${esc(n.squadName || 'your squad')}</b>`;
   switch (n.type) {
     case 'reply': return `${who} replied to your post ${t}`;
     case 'thread_reply': return `${who} also replied on ${t}`;
@@ -1474,7 +1494,7 @@ function notifText(n) {
     default: return `${who} did something in ${grp}`;
   }
 }
-const notifHref = (n) => (n.type === 'challenge_new' ? `/g/${n.squadId}/c/${n.challengeId}` : `/forum/${n.postId}`);
+const notifHref = (n) => (n.type === 'challenge_new' ? `/s/${n.squadId}/c/${n.challengeId}` : `/forum/${n.postId}`);
 
 async function notificationsPage() {
   if (!auth.username) {
@@ -1485,19 +1505,19 @@ async function notificationsPage() {
   try {
     const d = await api('/api/notifications');
     auth.unread = d.unread; renderNav();
-    app.innerHTML = `<section class="hero"><h1>Notifications</h1><p>Replies to your posts, answers you gave that were accepted, and what’s happening in your groups.</p>
+    app.innerHTML = `<section class="hero"><h1>Notifications</h1><p>Replies to your posts, answers you gave that were accepted, and what’s happening in your squads.</p>
       ${d.unread ? `<div class="stats-strip"><button class="btn btn-small btn-yellow" data-act="n-readall">${icon('check')} Mark all as read</button></div>` : ''}</section>
       <div class="notifs">${d.items.length ? d.items.map((n) => `<a class="card notif${n.read ? '' : ' unread'}" href="${notifHref(n)}" data-link data-nid="${n.id}">
         <span class="nico" style="background:${NOTIF_COLOR[n.type] || '#eee'}">${icon(NOTIF_ICON[n.type] || 'bell')}</span>
         <div class="ntext"><div>${notifText(n)}</div><div class="muted">${ago(n.createdAt)}</div></div>${n.read ? '' : '<span class="udot" aria-label="Unread"></span>'}</a>`).join('')
-        : `<div class="card empty"><span class="big">${icon('bell')}</span><h3>All quiet</h3><p class="muted">When someone replies to you or posts in one of your groups, it shows up here.</p></div>`}</div>`;
+        : `<div class="card empty"><span class="big">${icon('bell')}</span><h3>All quiet</h3><p class="muted">When someone replies to you or posts in one of your squads, it shows up here.</p></div>`}</div>`;
   } catch (e) { app.innerHTML = `<div class="card empty"><span class="big">${icon('alert')}</span><h3>${esc(e.message)}</h3></div>`; }
 }
 
 function renderNav() {
-  const onGroups = /^\/(groups|g\/|join\/)/.test(location.pathname);
+  const onGroups = /^\/(groups|squads|g\/|s\/|join\/)/.test(location.pathname);
   const onForum = location.pathname.startsWith('/forum');
-  $('#nav').innerHTML = `<a class="navlink${onForum ? ' on' : ''}" href="/forum" data-link>${icon('message')} Forum</a><a class="navlink${onGroups ? ' on' : ''}" href="/groups" data-link>${icon('users')} Groups</a>` + (auth.username
+  $('#nav').innerHTML = `<a class="navlink${onForum ? ' on' : ''}" href="/forum" data-link>${icon('message')} Forum</a><a class="navlink${onGroups ? ' on' : ''}" href="/squads" data-link>${icon('users')} Squads</a>` + (auth.username
     ? `<a class="navlink bell${location.pathname === '/notifications' ? ' on' : ''}" href="/notifications" data-link aria-label="Notifications${auth.unread ? `, ${auth.unread} unread` : ''}" title="Notifications">${icon('bell')}${auth.unread ? `<span class="badge">${auth.unread > 99 ? '99+' : auth.unread}</span>` : ''}</a>
        <a class="mepill" href="/u/${encodeURIComponent(auth.username)}" data-link title="Your profile">${avatar({ username: auth.username, avatar: auth.avatar }, 'mini')}<span class="mename">${esc(auth.username)}</span></a>
        <button class="btn btn-small btn-ghost" data-act="sign-out">Sign out</button>`
@@ -1510,6 +1530,9 @@ function navigate(path, replace = false) {
   route();
 }
 function route() {
+  // Old /groups and /g/... links (already shared) now live at /squads and /s/...
+  const legacy = location.pathname.replace(/^\/groups(?=\/|$)/, '/squads').replace(/^\/g\//, '/s/');
+  if (legacy !== location.pathname) history.replaceState({}, '', legacy + location.search);
   clearTimeout(timer);
   window.scrollTo(0, 0);
   renderNav();
@@ -1520,10 +1543,10 @@ function route() {
   else if (/^\/forum\/?$/.test(path)) { setTitle('Forum'); forumPage(); }
   else if ((m = path.match(/^\/forum\/(\d+)\/?$/))) { setTitle('Forum'); forumPostPage(m[1]); }
   else if (/^\/notifications\/?$/.test(path)) { setTitle('Notifications'); notificationsPage(); }
-  else if (/^\/groups\/?$/.test(path)) { setTitle('Groups'); groupsPage(); }
-  else if ((m = path.match(/^\/g\/(\d+)\/c\/(\d+)\/?$/))) { setTitle('Challenge'); challengePage(m[1], m[2]); }
-  else if ((m = path.match(/^\/g\/(\d+)\/discussion\/?$/))) { setTitle('Group discussion'); groupTab = 'discussion'; groupPage(m[1]); }
-  else if ((m = path.match(/^\/g\/(\d+)\/?$/))) { setTitle('Group'); groupPage(m[1]); }
+  else if (/^\/(?:groups|squads)\/?$/.test(path)) { setTitle('Squads'); groupsPage(); }
+  else if ((m = path.match(/^\/(?:g|s)\/(\d+)\/c\/(\d+)\/?$/))) { setTitle('Challenge'); challengePage(m[1], m[2]); }
+  else if ((m = path.match(/^\/(?:g|s)\/(\d+)\/discussion\/?$/))) { setTitle('Squad discussion'); groupTab = 'discussion'; groupPage(m[1]); }
+  else if ((m = path.match(/^\/(?:g|s)\/(\d+)\/?$/))) { setTitle('Squad'); groupPage(m[1]); }
   else if ((m = path.match(/^\/join\/([^/]+)\/?$/))) { setTitle('Invite'); joinPage(decodeURIComponent(m[1])); }
   else { setTitle(''); home(); }
   setTimeout(refreshUnread, 1500); // opening a post/tab clears its notifications server-side; refresh the badge
