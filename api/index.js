@@ -1,4 +1,4 @@
-// Vercel serverless entry: every /api/* request lands here and is handled by the shared API (server/app.js).
+// Vercel serverless entry: vercel.json rewrites every /api/* request here and is handled by the shared API (server/app.js).
 import { handle } from '../server/app.js';
 
 export default async function handler(req, res) {
