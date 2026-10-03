@@ -24,7 +24,7 @@ Listens on localhost only. `HOST=0.0.0.0` exposes it on your network. Copy `.env
 ```bash
 brew install tursodatabase/tap/turso
 turso auth signup                      # or: turso auth login
-turso db create leetsquad
+turso db create leetsquad --location bom   # Mumbai; keep it matching "regions" in vercel.json (bom1)
 turso db show leetsquad --url          # -> TURSO_DATABASE_URL  (libsql://...)
 turso db tokens create leetsquad       # -> TURSO_AUTH_TOKEN
 ```
@@ -71,6 +71,7 @@ immediately, add to Vercel: `GH_REPO` = `you/repo` and `GH_DISPATCH_TOKEN` = a f
 with *Actions: Read and write*.
 
 ### Things to know
+- **Region:** the Vercel function is pinned to Mumbai (`bom1` in `vercel.json`) so it sits next to a Mumbai Turso database. If you pick a different database region, change `regions` to the nearest Vercel region.
 - **LeetCode from the cloud:** LeetCode sometimes blocks datacenter IPs. If sign-in or sync fails from Vercel/Actions with
   403s, that's the cause (it works from home connections). Check the first *sync* run's log.
 - **Vercel Hobby** is for non-commercial use. Scheduled GitHub workflows pause after 60 days without repo activity —
