@@ -4,13 +4,14 @@ import { kvGet, kvSet } from './clist.js';
 
 export const dispatchConfigured = () => !!(process.env.GH_REPO && process.env.GH_DISPATCH_TOKEN);
 
-export async function dispatchWorker() {
+// minGap: don't start another run if one was requested less than this many seconds ago.
+export async function dispatchWorker({ minGap = 45 } = {}) {
   if (!dispatchConfigured()) return false;
   const last = Number(await kvGet('last_dispatch') || 0);
-  if (Date.now() / 1000 - last < 45) return false; // one run is enough for a burst of requests
+  if (Date.now() / 1000 - last < minGap) return false; // one run is enough for a burst of requests
   await kvSet('last_dispatch', Math.floor(Date.now() / 1000));
   try {
-    const res = await fetch(`https://api.github.com/repos/${process.env.GH_REPO}/actions/workflows/sync.yml/dispatches`, {
+    const res = await fetch(`${process.env.GH_API_URL || 'https://api.github.com'}/repos/${process.env.GH_REPO}/actions/workflows/sync.yml/dispatches`, {
       method: 'POST',
       headers: {
         accept: 'application/vnd.github+json', 'user-agent': 'LeetSquad',

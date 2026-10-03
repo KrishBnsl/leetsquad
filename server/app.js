@@ -3,7 +3,8 @@ import crypto from 'node:crypto';
 import { db } from './db.js';
 import { encrypt } from './crypto.js';
 import * as lc from './leetcode.js';
-import { queueSync, getSyncStatuses } from './sync.js';
+import { queueSync, getSyncStatuses, RUN_WORKER } from './sync.js';
+import { dispatchWorker } from './dispatch.js';
 import { allUsers, leaderboardEntry, profile, feed, avatarFor, linksOf, linkSummary, TZ } from './stats.js';
 import * as plat from './platforms.js';
 import { HttpError } from './http-error.js';
@@ -117,6 +118,17 @@ async function requireAuth(req) {
 }
 
 const IDLE = { state: 'idle', message: '' };
+
+// Hosted mode only: if someone is looking at data that has gone stale (or a sign-up is waiting in the queue),
+// wake the sync worker now instead of waiting for GitHub's unreliable schedule. No-op without GH_DISPATCH_TOKEN.
+const STALE_AFTER_S = 15 * 60;
+async function wakeWorkerIfNeeded(entries) {
+  if (RUN_WORKER) return;
+  const now = Math.floor(Date.now() / 1000);
+  const queued = entries.some((e) => e.sync.state === 'queued');
+  const stale = entries.some((e) => e.sync.state === 'idle' && now - (e.lastSynced || 0) > STALE_AFTER_S);
+  if (queued || stale) await dispatchWorker({ minGap: queued ? 45 : 300 }).catch(() => {});
+}
 const withSync = (entry, statuses) => ({ ...entry, sync: statuses.get(entry.username.toLowerCase()) || IDLE });
 
 const routes = [
@@ -125,14 +137,18 @@ const routes = [
   ['GET', /^\/api\/leaderboard$/, async () => {
     const [users, statuses, recent] = await Promise.all([allUsers(), getSyncStatuses(), feed()]);
     const entries = await Promise.all(users.map((u) => leaderboardEntry(u)));
-    return { tz: TZ, generatedAt: Math.floor(Date.now() / 1000), users: entries.map((e) => withSync(e, statuses)), feed: recent };
+    const withStatus = entries.map((e) => withSync(e, statuses));
+    await wakeWorkerIfNeeded(withStatus);
+    return { tz: TZ, generatedAt: Math.floor(Date.now() / 1000), users: withStatus, feed: recent };
   }],
 
   ['GET', /^\/api\/users\/([^/]+)$/, async (req, m) => {
     const p = await profile(decodeURIComponent(m[1]));
     if (!p) throw new HttpError(404, 'No such user on the squad');
     const [statuses, log] = await Promise.all([getSyncStatuses(), act.logSummary(p.username, p.today)]);
-    return { ...withSync(p, statuses), log, categories: act.CATEGORIES };
+    const entry = withSync(p, statuses);
+    await wakeWorkerIfNeeded([entry]);
+    return { ...entry, log, categories: act.CATEGORIES };
   }],
 
   ['POST', /^\/api\/users$/, async (req) => {

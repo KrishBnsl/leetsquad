@@ -65,9 +65,10 @@ Repo → Settings → Secrets and variables → Actions. Add **secrets** `TURSO_
 enable workflows, and run **sync** once by hand (*Run workflow*) to check it goes green. After that it runs by itself
 about every 10 minutes (GitHub may delay scheduled runs by a few minutes at busy times).
 
-### 6. Optional: instant first sync
-By default a new sign-up or **Refresh** click waits for the next worker run (≤ ~10 min). To start the worker
-immediately, add to Vercel: `GH_REPO` = `you/repo` and `GH_DISPATCH_TOKEN` = a fine-grained GitHub token for that repo
+### 6. Recommended: wake the worker on demand
+GitHub's `schedule` trigger is best-effort and can run late — on a new repo the first scheduled runs may not start for
+an hour or more. Without this step a new sign-up shows "Waiting in line…" until one happens. With it, the site starts the
+worker itself whenever someone signs up, hits **Refresh**, or views data that is over 15 minutes stale. Add to Vercel: `GH_REPO` = `you/repo` and `GH_DISPATCH_TOKEN` = a fine-grained GitHub token for that repo
 with *Actions: Read and write*.
 
 ### Things to know
