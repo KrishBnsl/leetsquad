@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     const s = await lookup(kind, v).catch(() => null);
     if (s) {
       const c = cardFields(s);
-      const what = clip(c.tagline || c.about || 'A squad on LeetSquad', 110);
+      const what = clip(c.tagline || c.about || 'A squad on LeetSquad', 110).replace(/[.!?…]*$/, '.');
       const title = kind === 'join' ? `Join ${s.name} on LeetSquad` : `${s.name} · LeetSquad squad`;
       const desc = `${what} ${s.members} member${s.members === 1 ? '' : 's'} · ${MODES[c.joinMode] || 'Invite only'}. Track LeetCode, Codeforces and GitHub together.`;
       const page = `${origin}${kind === 'join' ? '/join/' + encodeURIComponent(v) : '/s/' + s.id}`;
