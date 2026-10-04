@@ -1100,7 +1100,7 @@ function renderGroup(d) {
 
   app.innerHTML = `
   <a class="back" href="/squads" data-link>← All squads</a>
-  <section class="card banner gbanner">${sqIco(g, 'big')}
+  <section class="card banner gbanner">${g.isOwner ? `<a class="icoedit" href="/s/${g.id}/settings" data-link title="Change squad picture">${sqIco(g, 'big')}<span class="cam">${icon('camera')}</span></a>` : sqIco(g, 'big')}
     <div><h1>${esc(g.name)}</h1><div class="meta"><span class="chip">${plural(d.users.length, 'member')}</span><span class="chip">${icon('award')} Owner @${esc(g.owner)}</span>${modeChip(g.joinMode)}${g.listed ? '' : '<span class="chip">Unlisted</span>'}${g.isOwner && g.pendingRequests ? `<button class="chip st-up" data-gtab="settings">${icon('bell')} ${plural(g.pendingRequests, 'join request')}</button>` : ''}</div>${g.tagline ? `<div class="muted" style="margin-top:6px">${esc(g.tagline)}</div>` : ''}</div>
     <div class="actions">${g.isOwner ? '<button class="btn btn-ghost btn-small" data-act="delete-group">Delete squad</button>' : '<button class="btn btn-ghost btn-small" data-act="leave-group">Leave squad</button>'}</div></section>
   <section class="card invite"><div><div class="k">Invite code</div><div class="code">${fmtCode(g.code)}</div></div>

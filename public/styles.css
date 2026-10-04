@@ -509,3 +509,6 @@ button.chip.st-up { cursor: pointer; font-family: var(--body); }
 .sqtitle { display: flex; align-items: center; gap: 14px; } .sqtitle h1 { margin: 0; }
 .sqtop .sqname { flex: 1; min-width: 0; }
 #sq-form .photo-edit { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.icoedit { position: relative; display: block; text-decoration: none; }
+.icoedit .cam { position: absolute; right: -6px; bottom: -6px; display: grid; place-items: center; width: 30px; height: 30px; background: var(--yellow); border: 2.5px solid var(--ink); border-radius: 50%; box-shadow: 2px 2px 0 var(--ink); transition: transform .15s; }
+.icoedit .cam .ic { width: 16px; height: 16px; } .icoedit:hover .cam { transform: scale(1.12) rotate(-6deg); }
