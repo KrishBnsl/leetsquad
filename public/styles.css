@@ -493,3 +493,10 @@ a.sqcard:hover { transform: translate(-2px,-3px) rotate(-.4deg); box-shadow: 6px
 button.chip.st-up { cursor: pointer; font-family: var(--body); }
 
 #sqq { width: 250px; }
+
+/* Squad settings form: one consistent rhythm between fields */
+#sq-form .field { margin: 0 0 22px; }
+#sq-form .field > label:not(.chk) { margin-bottom: 8px; }
+#sq-form .field > small { margin-top: 8px; }
+#sq-form .swatches { padding: 4px 6px 0; }
+#sq-form .chk { margin-bottom: 0; }
