@@ -421,6 +421,26 @@ const routes = [
     await sq.updateSettings(await sq.requireSquad(m[1], me), me, await readJson(req));
     return { ok: true };
   }],
+  ['PUT', /^\/api\/squads\/(\d+)\/icon$/, async (req, m) => {
+    const me = await requireAuth(req);
+    const sm = /^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String((await readJson(req, 160_000)).image || ''));
+    if (!sm) throw new HttpError(400, 'Please upload a JPEG, PNG or WebP image');
+    const data = Buffer.from(sm[1], 'base64');
+    const mime = sniffImage(data);
+    if (!mime) throw new HttpError(400, 'That doesn’t look like a valid image');
+    if (data.length > 120_000) throw new HttpError(413, 'Image is too large');
+    return { icon: await sq.setIcon(await sq.requireSquad(m[1], me), me, mime, data) };
+  }],
+  ['DELETE', /^\/api\/squads\/(\d+)\/icon$/, async (req, m) => {
+    const me = await requireAuth(req);
+    await sq.clearIcon(await sq.requireSquad(m[1], me), me);
+    return { ok: true };
+  }],
+  ['GET', /^\/api\/squad-icon\/(\d+)$/, async (req, m) => {
+    const a = await db.get('SELECT mime, data FROM squad_icons WHERE squad_id = ?', Number(m[1]));
+    if (!a) throw new HttpError(404, 'No icon');
+    return new Raw(Buffer.from(a.data), a.mime, { 'cache-control': 'public, max-age=86400, s-maxage=86400', 'content-security-policy': "default-src 'none'" });
+  }],
   ['GET', /^\/api\/squads\/(\d+)\/requests$/, async (req, m) => {
     const me = await requireAuth(req);
     return { requests: await sq.listRequests(await sq.requireSquad(m[1], me), me) };

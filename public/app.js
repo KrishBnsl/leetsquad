@@ -827,6 +827,7 @@ const SQ_COLORS = { pink: '#ff6b9d', yellow: '#ffd23f', mint: '#3ddc97', blue: '
 const MODE_LABEL = { open: 'Open', request: 'By request', invite: 'Invite only' };
 const MODE_HELP = { open: 'Anyone signed in can join instantly.', request: 'People send a request and you approve or decline it.', invite: 'Joining needs an invite code from a member.' };
 const MODE_ICON = { open: 'check', request: 'hourglass', invite: 'lock' };
+const sqIco = (c, cls = '') => `<div class="gico ${cls}${c.icon ? ' has-img' : ''}">${c.icon ? `<img src="${esc(c.icon)}" alt="" loading="lazy">` : icon('users')}</div>`;
 const modeChip = (m) => `<span class="chip mode-${m}">${icon(MODE_ICON[m] || 'lock')} ${MODE_LABEL[m] || m}</span>`;
 const avStack = (list = []) => `<span class="avs">${list.map((p) => avatar({ username: p.username, avatar: p.avatar }, 'mini')).join('')}</span>`;
 const dirState = { q: '', mode: '', tag: '', sort: 'members', squads: [], page: 1, hasMore: false };
@@ -834,7 +835,7 @@ const dirState = { q: '', mode: '', tag: '', sort: 'members', squads: [], page: 
 function squadCardHtml(c, { preview = false } = {}) {
   const tag = preview ? 'div' : 'a';
   return `<${tag} class="card sqcard sq-${esc(c.color)}"${preview ? '' : ` href="/s/${c.id}" data-link`}>
-    <div class="sqtop"><div class="sqname">${esc(c.name || 'Your squad name')}</div>${modeChip(c.joinMode)}</div>
+    <div class="sqtop">${sqIco(c, 'sm')}<div class="sqname">${esc(c.name || 'Your squad name')}</div>${modeChip(c.joinMode)}</div>
     ${c.tagline ? `<div class="sqtagline">${esc(c.tagline)}</div>` : ''}
     ${c.tags?.length ? `<div class="chips">${c.tags.slice(0, 4).map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}${c.tags.length > 4 ? `<span class="chip">+${c.tags.length - 4}</span>` : ''}</div>` : ''}
     <div class="sqfoot">${avStack(c.preview)}<span class="muted">${plural(c.members ?? 1, 'member')}${c.activeChallenges ? ` · ${plural(c.activeChallenges, 'live challenge')}` : ''}</span>
@@ -887,7 +888,7 @@ async function mineView() {
   try {
     const { groups } = await api('/api/groups');
     body.innerHTML = groups.length ? `<div class="gridc">${groups.map((g) => `<a class="card gcard" href="/s/${g.id}" data-link>
-        <div class="gico">${icon('users')}</div><div class="gname">${esc(g.name)}</div>
+        ${sqIco(g)}<div class="gname">${esc(g.name)}</div>
         ${g.tagline ? `<div class="muted">${esc(g.tagline)}</div>` : ''}
         <div class="chips"><span class="chip">${plural(g.members, 'member')}</span>${modeChip(g.joinMode)}
           ${g.pendingRequests ? `<span class="chip st-up">${icon('bell')} ${plural(g.pendingRequests, 'request')}</span>` : ''}
@@ -927,7 +928,7 @@ function squadCardPage(c) {
 
   const section = (title, ic, text) => text ? `<section class="card"><h2>${hi(ic, '#e1d2ff')} ${title}</h2><p class="sqtext">${esc(text)}</p></section>` : '';
   app.innerHTML = `<a class="back" href="/squads" data-link>← All squads</a>
-    <section class="card sqhero sq-${esc(c.color)}"><div class="sqhead"><h1>${esc(c.name)}</h1>${c.tagline ? `<div class="sqtagline">${esc(c.tagline)}</div>` : ''}
+    <section class="card sqhero sq-${esc(c.color)}"><div class="sqhead"><div class="sqtitle">${sqIco(c, 'big')}<h1>${esc(c.name)}</h1></div>${c.tagline ? `<div class="sqtagline">${esc(c.tagline)}</div>` : ''}
         <div class="chips">${modeChip(c.joinMode)}${c.tags.map((t) => `<span class="chip topic">${esc(t)}</span>`).join('')}</div>
         <div class="sqfacts"><span class="muted">${avStack(c.preview)} ${plural(c.members, 'member')}</span>
           ${c.activeChallenges ? `<span class="chip st-active">${plural(c.activeChallenges, 'live challenge')}</span>` : ''}
@@ -972,6 +973,10 @@ function settingsView(d) {
   <div class="settings-grid"><section class="card"><h2>${hi('pencil', '#ffdcb8')} Squad card</h2>
     <p class="muted" style="margin:0 0 12px">This is what people see in the directory and before they join.</p>
     <form id="sq-form" autocomplete="off">
+      <div class="field"><label>Squad picture</label><div class="photo-edit"><div id="st-icon">${sqIco(g, 'big')}</div>
+        <div><label class="btn btn-yellow btn-small" for="st-iconfile">${icon('camera')} Choose picture</label><input id="st-iconfile" type="file" accept="image/*" hidden>
+          <button type="button" class="btn btn-ghost btn-small" id="st-iconreset"${g.icon ? '' : ' hidden'}>Remove</button>
+          <small>Square pictures look best. Without one, squads show the default icon. Saved right away.</small></div></div></div>
       <div class="field"><label for="st-name">Name</label><input id="st-name" name="name" required maxlength="40" value="${esc(g.name)}"></div>
       <div class="field"><label for="st-tag">Tagline <em>(one line)</em></label><input id="st-tag" name="tagline" maxlength="80" placeholder="e.g. One DP problem a day, together" value="${esc(g.tagline)}"></div>
       <div class="field"><label for="st-about">What’s this squad about?</label><textarea id="st-about" name="about" rows="3" maxlength="600" placeholder="Your goals, how you practise, what a week looks like…">${esc(g.about)}</textarea></div>
@@ -993,10 +998,10 @@ function bindSettings(d) {
   const f = $('#sq-form');
   if (!f) return;
   const picked = new Set(d.group.tags);
-  let color = d.group.color;
+  let color = d.group.color, iconUrl = d.group.icon;
   const read = () => ({
     name: f.elements.name.value.trim(), tagline: f.elements.tagline.value.trim(), about: f.elements.about.value.trim(), audience: f.elements.audience.value.trim(),
-    rules: f.elements.rules.value.trim(), tags: [...picked], color, listed: f.elements.listed.checked,
+    rules: f.elements.rules.value.trim(), tags: [...picked], color, icon: iconUrl, listed: f.elements.listed.checked,
     joinMode: f.elements.listed.checked ? (f.elements.joinMode.value || 'invite') : 'invite',
   });
   const refresh = () => {
@@ -1014,6 +1019,21 @@ function bindSettings(d) {
   f.querySelectorAll('[data-sqcolor]').forEach((b) => b.addEventListener('click', () => {
     color = b.dataset.sqcolor; f.querySelectorAll('[data-sqcolor]').forEach((x) => x.setAttribute('aria-pressed', x === b)); refresh();
   }));
+  const setIcon = (url) => {
+    iconUrl = url; d.group.icon = url;
+    $('#st-icon').innerHTML = sqIco({ icon: url }, 'big'); $('#st-iconreset').hidden = !url; refresh();
+  };
+  $('#st-iconfile').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    try {
+      const r = await api(`/api/squads/${d.group.id}/icon`, { method: 'PUT', body: { image: await fileToSquareJpeg(file) } });
+      setIcon(r.icon); toast('Squad picture updated');
+    } catch (ex) { toast(ex.message); }
+  });
+  $('#st-iconreset').addEventListener('click', async () => {
+    try { await api(`/api/squads/${d.group.id}/icon`, { method: 'DELETE' }); setIcon(null); toast('Back to the default icon'); } catch (ex) { toast(ex.message); }
+  });
   f.addEventListener('input', refresh);
   refresh();
   f.addEventListener('submit', async (e) => {
@@ -1080,7 +1100,7 @@ function renderGroup(d) {
 
   app.innerHTML = `
   <a class="back" href="/squads" data-link>← All squads</a>
-  <section class="card banner gbanner"><div class="gico big">${icon('users')}</div>
+  <section class="card banner gbanner">${sqIco(g, 'big')}
     <div><h1>${esc(g.name)}</h1><div class="meta"><span class="chip">${plural(d.users.length, 'member')}</span><span class="chip">${icon('award')} Owner @${esc(g.owner)}</span>${modeChip(g.joinMode)}${g.listed ? '' : '<span class="chip">Unlisted</span>'}${g.isOwner && g.pendingRequests ? `<button class="chip st-up" data-gtab="settings">${icon('bell')} ${plural(g.pendingRequests, 'join request')}</button>` : ''}</div>${g.tagline ? `<div class="muted" style="margin-top:6px">${esc(g.tagline)}</div>` : ''}</div>
     <div class="actions">${g.isOwner ? '<button class="btn btn-ghost btn-small" data-act="delete-group">Delete squad</button>' : '<button class="btn btn-ghost btn-small" data-act="leave-group">Leave squad</button>'}</div></section>
   <section class="card invite"><div><div class="k">Invite code</div><div class="code">${fmtCode(g.code)}</div></div>

@@ -500,3 +500,12 @@ button.chip.st-up { cursor: pointer; font-family: var(--body); }
 #sq-form .field > small { margin-top: 8px; }
 #sq-form .swatches { padding: 4px 6px 0; }
 #sq-form .chk { margin-bottom: 0; }
+
+/* Squad pictures */
+.gico.has-img { background: #fff; overflow: hidden; padding: 0; }
+.gico img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gico.sm { width: 38px; height: 38px; border-radius: 12px; flex: none; }
+.gico.sm .ic { width: 20px; height: 20px; }
+.sqtitle { display: flex; align-items: center; gap: 14px; } .sqtitle h1 { margin: 0; }
+.sqtop .sqname { flex: 1; min-width: 0; }
+#sq-form .photo-edit { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }

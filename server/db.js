@@ -13,7 +13,7 @@ export const DATA_DIR = IS_TURSO ? null : (process.env.DATA_DIR || path.join(roo
 if (DATA_DIR) fs.mkdirSync(DATA_DIR, { recursive: true });
 initKey(DATA_DIR);
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const DDL = `
 CREATE TABLE IF NOT EXISTS users (
   username     TEXT PRIMARY KEY COLLATE NOCASE,
@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS squads (
   tags       TEXT NOT NULL DEFAULT '[]',
   join_mode  TEXT NOT NULL DEFAULT 'invite',
   listed     INTEGER NOT NULL DEFAULT 0,
-  color      TEXT NOT NULL DEFAULT 'pink'
+  color      TEXT NOT NULL DEFAULT 'pink',
+  icon_v     INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_squads_listed ON squads(listed, created_at);
 CREATE TABLE IF NOT EXISTS squad_requests (
@@ -99,6 +100,11 @@ CREATE TABLE IF NOT EXISTS challenges (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ch_squad ON challenges(squad_id);
+CREATE TABLE IF NOT EXISTS squad_icons (
+  squad_id   INTEGER PRIMARY KEY REFERENCES squads(id) ON DELETE CASCADE,
+  mime       TEXT NOT NULL,
+  data       BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS avatars (
   username   TEXT PRIMARY KEY COLLATE NOCASE REFERENCES users(username) ON DELETE CASCADE,
   mime       TEXT NOT NULL,
@@ -265,7 +271,7 @@ async function ensureSchema() {
   if (await hasTable('squads')) {
     const sc = await cols('squads');
     for (const [name, def] of [['tagline', 'TEXT'], ['about', 'TEXT'], ['audience', 'TEXT'], ['rules', 'TEXT'], ['tags', "TEXT NOT NULL DEFAULT '[]'"],
-      ['join_mode', "TEXT NOT NULL DEFAULT 'invite'"], ['listed', 'INTEGER NOT NULL DEFAULT 0'], ['color', "TEXT NOT NULL DEFAULT 'pink'"]])
+      ['join_mode', "TEXT NOT NULL DEFAULT 'invite'"], ['listed', 'INTEGER NOT NULL DEFAULT 0'], ['color', "TEXT NOT NULL DEFAULT 'pink'"], ['icon_v', 'INTEGER']])
       if (!sc.includes(name)) alters.push(`ALTER TABLE squads ADD COLUMN ${name} ${def}`);
   }
   if (await hasTable('forum_posts')) {

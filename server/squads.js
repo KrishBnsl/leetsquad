@@ -54,6 +54,7 @@ const JOIN_MODES = ['open', 'request', 'invite'];
 export const cardFields = (s) => ({
   tagline: s.tagline || '', about: s.about || '', audience: s.audience || '', rules: s.rules || '',
   tags: JSON.parse(s.tags || '[]'), joinMode: s.listed ? s.join_mode : 'invite', listed: !!s.listed, color: s.color || 'pink',
+  icon: s.icon_v ? `/api/squad-icon/${s.id}?v=${s.icon_v}` : null,
 });
 
 const squadView = (s, username, extra = {}) => ({
@@ -154,6 +155,7 @@ const dropSquadStatements = (id) => [
   ['DELETE FROM squad_requests WHERE squad_id = ?', id],
   ['DELETE FROM challenges WHERE squad_id = ?', id],
   ['DELETE FROM squad_members WHERE squad_id = ?', id],
+  ['DELETE FROM squad_icons WHERE squad_id = ?', id],
   ['DELETE FROM squads WHERE id = ?', id],
 ];
 
@@ -491,4 +493,19 @@ export async function decideRequest(squad, owner, requestId, action) {
 
 export async function pendingRequestCount(squadId) {
   return (await db.get("SELECT COUNT(*) AS n FROM squad_requests WHERE squad_id = ? AND status = 'pending'", squadId)).n;
+}
+
+export async function setIcon(squad, username, mime, data) {
+  assertOwner(squad, username);
+  const v = Math.floor(Date.now() / 1000);
+  await db.batch([
+    ['INSERT INTO squad_icons (squad_id, mime, data) VALUES (?,?,?) ON CONFLICT(squad_id) DO UPDATE SET mime=excluded.mime, data=excluded.data', squad.id, mime, data],
+    ['UPDATE squads SET icon_v = ? WHERE id = ?', v, squad.id],
+  ]);
+  return `/api/squad-icon/${squad.id}?v=${v}`;
+}
+
+export async function clearIcon(squad, username) {
+  assertOwner(squad, username);
+  await db.batch([['DELETE FROM squad_icons WHERE squad_id = ?', squad.id], ['UPDATE squads SET icon_v = NULL WHERE id = ?', squad.id]]);
 }
