@@ -195,8 +195,8 @@ main { max-width: 1120px; margin: 0 auto; padding: 8px 20px 40px; }
 .modal form { display: grid; gap: 14px; margin-top: 16px; }
 .field label { display: block; font: 600 15px var(--display); margin-bottom: 4px; }
 .field label em { font: 600 12px var(--body); color: var(--muted); font-style: normal; }
-.field input { width: 100%; font: 600 15px var(--body); padding: 10px 14px; border: 2.5px solid var(--ink); border-radius: 12px; background: #fffdf7; color: var(--ink); }
-.field input:focus { outline: none; box-shadow: 3px 3px 0 var(--blue); }
+.field input:not([type="checkbox"]):not([type="radio"]) { width: 100%; font: 600 15px var(--body); padding: 10px 14px; border: 2.5px solid var(--ink); border-radius: 12px; background: #fffdf7; color: var(--ink); }
+.field input:not([type="checkbox"]):not([type="radio"]):focus { outline: none; box-shadow: 3px 3px 0 var(--blue); }
 .field small { color: var(--muted); font-size: 12.5px; }
 details { border: 2px dashed var(--ink); border-radius: 14px; padding: 8px 14px; background: #fffaf0; font-size: 14px; }
 details summary { cursor: pointer; font: 600 15px var(--display); }
@@ -481,8 +481,8 @@ a.sqcard:hover { transform: translate(-2px,-3px) rotate(-.4deg); box-shadow: 6px
 .settings-preview { position: sticky; top: 14px; } @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } .settings-preview { position: static; order: -1; } }
 .field select { width: 100%; font: 600 15px var(--body); padding: 10px 14px; border: 2.5px solid var(--ink); border-radius: 12px; background: #fffdf7; color: var(--ink); }
 .field textarea { width: 100%; }
-.chk { display: flex !important; align-items: center; gap: 8px; cursor: pointer; font: 600 16px var(--display); } .chk input { width: 20px; height: 20px; accent-color: var(--pink); }
-.swatches { display: flex; gap: 10px; flex-wrap: wrap; } .swatch { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; } .swatch[aria-pressed="true"] { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--ink); }
+.chk { display: flex !important; align-items: center; gap: 8px; cursor: pointer; font: 600 16px var(--display); } .chk input { width: 20px; height: 20px; padding: 0; margin: 0; accent-color: var(--pink); } .chk:focus-within input, .modeopt input:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.swatches { display: flex; gap: 12px; flex-wrap: wrap; padding: 6px 6px 18px; } .swatch { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; } .swatch[aria-pressed="true"] { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--ink); }
 .modepick { display: grid; gap: 8px; } .modeopt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 2.5px solid var(--ink); border-radius: 14px; cursor: pointer; background: #fff; }
 .modeopt input { margin-top: 6px; accent-color: var(--pink); } .modeopt small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 4px; }
 .modeopt:has(input:checked) { background: #fff7e0; box-shadow: 3px 3px 0 var(--ink); } .field.dim .modeopt { opacity: .5; cursor: not-allowed; }
