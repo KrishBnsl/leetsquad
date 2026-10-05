@@ -13,7 +13,7 @@ export const DATA_DIR = IS_TURSO ? null : (process.env.DATA_DIR || path.join(roo
 if (DATA_DIR) fs.mkdirSync(DATA_DIR, { recursive: true });
 initKey(DATA_DIR);
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const DDL = `
 CREATE TABLE IF NOT EXISTS users (
   username     TEXT PRIMARY KEY COLLATE NOCASE,
@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
   session_enc  TEXT,
   csrf_enc     TEXT,
   session_ok   INTEGER NOT NULL DEFAULT 1,
+  password_hash TEXT,
   full_synced  INTEGER NOT NULL DEFAULT 0,
   added_at     INTEGER NOT NULL,
   last_synced  INTEGER,
@@ -267,6 +268,7 @@ async function ensureSchema() {
   const hasTable = async (t) => !!(await backend.get("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?", [t]));
   const alters = [];
   if (await hasTable('submissions') && !(await cols('submissions')).includes('platform')) alters.push("ALTER TABLE submissions ADD COLUMN platform TEXT NOT NULL DEFAULT 'leetcode'");
+  if (await hasTable('users') && !(await cols('users')).includes('password_hash')) alters.push('ALTER TABLE users ADD COLUMN password_hash TEXT');
   if (await hasTable('questions') && !(await cols('questions')).includes('rating')) alters.push('ALTER TABLE questions ADD COLUMN rating INTEGER');
   if (await hasTable('squads')) {
     const sc = await cols('squads');

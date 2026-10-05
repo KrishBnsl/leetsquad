@@ -273,7 +273,7 @@ function renderHome(data) {
   const lp = leader?.modes.overall.periods.week.points || 0;
   const ctas = auth.username
     ? `<a class="btn btn-pink" href="/squads/mine" data-link>${icon('users')} Your squads</a><a class="btn btn-yellow" href="/forum" data-link>${icon('message')} Forum</a>`
-    : `<button class="btn btn-pink" data-join data-title="Sign in">${icon('plus')} Join the leaderboard</button><a class="btn btn-yellow" href="/forum" data-link>${icon('message')} Browse the forum</a>`;
+    : `<button class="btn btn-pink" data-join data-mode="signup">${icon('plus')} Join the leaderboard</button><a class="btn btn-yellow" href="/forum" data-link>${icon('message')} Browse the forum</a>`;
 
   const hero = `<section class="hero herogrid">
     <div class="heroL"><h1>Who’s grinding <span class="hl">today</span>? <span class="wave">${icon('hand')}</span></h1>
@@ -287,7 +287,7 @@ function renderHome(data) {
 
   if (!data.users.length) {
     app.innerHTML = hero + `<div class="card empty" style="margin-top:24px"><span class="big">${icon('users')}</span><h3>The leaderboard is empty!</h3>
-      <p class="muted">Be the first to hop on the leaderboard.</p><button class="btn btn-pink" data-join data-title="Join LeetSquad" data-button="Add me!">${icon('plus')} Join LeetSquad</button></div>`;
+      <p class="muted">Be the first to hop on the leaderboard.</p><button class="btn btn-pink" data-join data-mode="signup">${icon('plus')} Join LeetSquad</button></div>`;
     return;
   }
   app.innerHTML = hero + boardHtml(data.users, data.feed, { syncing: isSyncing(data.users) });
@@ -583,7 +583,7 @@ function renderProfile(p) {
   const s = p.sync, syncing = s.state === 'syncing' || s.state === 'queued';
   const own = ownsProfile(p);
   const partial = !p.sessionOk
-    ? `<div class="notice warn">${icon('alert')} This session cookie has expired, so only the 20 most recent LeetCode solves are visible. <a href="#" data-join>Re-add yourself</a> with a fresh cookie to restore full history.</div>` : '';
+    ? `<div class="notice warn">${icon('alert')} This session cookie has expired, so only the 20 most recent LeetCode solves are visible. <a href="#" data-join data-mode="signup">Re-add yourself</a> with a fresh cookie to restore full history.</div>` : '';
   const err = p.syncError && !syncing ? `<div class="notice warn">Last sync hiccup: ${esc(p.syncError)}</div>` : '';
   const syncMsg = syncing ? `<div class="notice">${icon('hourglass')} ${esc(s.message || 'Syncing…')}</div>` : '';
   const cta = own && !p.codeforces && !p.github ? `<div class="notice">${icon('plus')} Add your <b>Codeforces</b> and <b>GitHub</b> to see ratings, contests and commits here too. <a href="#" data-act="links">Link accounts</a></div>` : '';
@@ -668,12 +668,27 @@ function pollProfile(username) {
 /* ---------- modal ---------- */
 function openModal(mode = 'join', username = '', onDone = null, ctx = {}) {
   const remove = mode === 'remove';
+  let tab = mode === 'signup' ? 'signup' : 'signin';
   const root = $('#modal-root');
-  root.innerHTML = `<div class="overlay" data-close><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt">
-    <h2 id="mt">${esc(remove ? 'Leave LeetSquad' : ctx.title || 'Sign in')}</h2>
-    <p class="muted" style="margin:0">${remove ? 'Prove it’s you with your session cookie and we’ll delete your data and stored cookie.' : ctx.text || 'Enter your LeetCode username and cookies. If you’re new, this also adds you to the leaderboard; if you’re already on it, it just signs you in on this device.'}</p>
+  const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => e.key === 'Escape' && close();
+
+  const render = () => {
+    const signin = !remove && tab === 'signin';
+    const label = remove ? 'Remove me' : signin ? 'Sign in' : 'Create account';
+    const heading = remove ? 'Leave LeetSquad' : signin ? ctx.title || 'Sign in' : 'Create your account';
+    const blurb = remove ? 'Prove it’s you with your session cookie and we’ll delete your data and stored cookie.'
+      : signin ? ctx.text || 'Welcome back! Sign in with your username and password. If you were here before passwords existed, your password is your username.'
+        : 'Enter your LeetCode username and cookies once to prove it’s you, then pick a password. After that you only need your username and password on any device. Already on the leaderboard but forgot your password? Do the same here to reset it.';
+    const user = $('#f-user')?.value ?? username;
+    root.innerHTML = `<div class="overlay"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt">
+    ${remove ? '' : `<div class="seg" style="margin:0 0 12px" role="tablist"><button type="button" role="tab" data-tab="signin" aria-pressed="${signin}">Sign in</button><button type="button" role="tab" data-tab="signup" aria-pressed="${!signin}">Create account</button></div>`}
+    <h2 id="mt">${esc(heading)}</h2>
+    <p class="muted" style="margin:0">${esc(blurb)}</p>
     <form id="join-form" autocomplete="off">
-      <div class="field"><label for="f-user">LeetCode username</label><input id="f-user" name="username" required maxlength="40" placeholder="e.g. neetcode" value="${esc(username)}" ${remove ? 'readonly' : ''}></div>
+      <div class="field"><label for="f-user">${signin ? 'Username' : 'LeetCode username'}</label><input id="f-user" name="username" required maxlength="40" placeholder="e.g. neetcode" value="${esc(user)}" ${remove ? 'readonly' : ''} autocomplete="username"></div>
+      ${signin ? `<div class="field"><label for="f-pass">Password</label><input id="f-pass" name="password" required type="password" maxlength="200" autocomplete="current-password"></div>` : `
+      ${remove ? '' : `<div class="field"><label for="f-pass">Password</label><input id="f-pass" name="password" required type="password" minlength="8" maxlength="200" autocomplete="new-password"><small>At least 8 characters.</small></div>`}
       <div class="field"><label for="f-sess">LEETCODE_SESSION cookie</label><input id="f-sess" name="session" required type="password" placeholder="eyJ0eXAiOiJKV1Qi…" spellcheck="false"></div>
       <div class="field"><label for="f-csrf">csrftoken cookie <em>(recommended)</em></label><input id="f-csrf" name="csrf" type="password" placeholder="abc123…" spellcheck="false"></div>
       <details><summary>How do I find my cookies?</summary><ol>
@@ -681,42 +696,43 @@ function openModal(mode = 'join', username = '', onDone = null, ctx = {}) {
         <li>Open DevTools (<code>F12</code> or <code>⌥⌘I</code>) → <b>Application</b> tab (Chrome/Edge) or <b>Storage</b> (Firefox/Safari).</li>
         <li>Cookies → <code>https://leetcode.com</code>.</li>
         <li>Copy the <b>Value</b> of <code>LEETCODE_SESSION</code> and <code>csrftoken</code>.</li></ol></details>
-      <div class="privacy">${icon('lock')} Cookies are used only to read your submission history, verified to match your username, and stored encrypted. Signing out of LeetCode (or changing password) invalidates them.</div>
+      <div class="privacy">${icon('lock')} Cookies are used only to read your submission history, verified to match your username, and stored encrypted. Signing out of LeetCode (or changing password) invalidates them.</div>`}
       <div class="err" id="f-err" hidden></div>
       <div class="btns"><button type="button" class="btn btn-ghost" data-close>Cancel</button>
-        <button class="btn ${remove ? '' : 'btn-pink'}" id="f-submit">${remove ? 'Remove me' : esc(ctx.button || 'Sign in')}</button></div>
+        <button class="btn ${remove ? '' : 'btn-pink'}" id="f-submit">${label}</button></div>
     </form></div></div>`;
-  const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey); };
-  const onKey = (e) => e.key === 'Escape' && close();
-  document.addEventListener('keydown', onKey);
-  root.querySelector('.overlay').addEventListener('mousedown', (e) => { if (e.target.closest('.modal') === null || e.target.matches('[data-close]')) close(); });
-  root.querySelector('button[data-close]').addEventListener('click', close);
-  (remove ? $('#f-sess') : $('#f-user')).focus();
+    root.querySelector('.overlay').addEventListener('mousedown', (e) => { if (e.target.closest('.modal') === null) close(); });
+    root.querySelector('button[data-close]').addEventListener('click', close);
+    root.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; render(); }));
+    (remove ? $('#f-sess') : $(user ? '#f-pass' : '#f-user')).focus();
 
-  $('#join-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const f = Object.fromEntries(new FormData(e.target));
-    const btn = $('#f-submit'), err = $('#f-err');
-    btn.disabled = true; btn.textContent = 'Checking with LeetCode…'; err.hidden = true;
-    try {
-      if (remove) {
-        await api(`/api/users/${encodeURIComponent(f.username)}`, { method: 'DELETE', body: f });
-        close(); if (auth.username && auth.username.toLowerCase() === f.username.toLowerCase()) { setAuth(null, null); renderNav(); }
-        toast('You’re off LeetSquad. Come back soon!'); navigate('/');
-      } else {
-        const r = await api('/api/users', { method: 'POST', body: f });
-        setAuth(r.token, r.username); close(); await refreshMe();
-        if (!r.updated) confetti();
-        toast(r.updated ? `Signed in as ${r.username}` : `Welcome to LeetSquad, ${r.username}!`);
-        if (onDone) onDone();
-        else if (r.updated) route();
-        else navigate(`/u/${encodeURIComponent(r.username)}`);
+    $('#join-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(e.target));
+      const btn = $('#f-submit'), err = $('#f-err');
+      btn.disabled = true; btn.textContent = signin ? 'Signing in…' : 'Checking with LeetCode…'; err.hidden = true;
+      try {
+        if (remove) {
+          await api(`/api/users/${encodeURIComponent(f.username)}`, { method: 'DELETE', body: f });
+          close(); if (auth.username && auth.username.toLowerCase() === f.username.toLowerCase()) { setAuth(null, null); renderNav(); }
+          toast('You’re off LeetSquad. Come back soon!'); navigate('/');
+        } else {
+          const r = await api(signin ? '/api/login' : '/api/users', { method: 'POST', body: f });
+          setAuth(r.token, r.username); close(); await refreshMe();
+          if (!signin && !r.updated) confetti();
+          toast(signin || r.updated ? `Signed in as ${r.username}` : `Welcome to LeetSquad, ${r.username}!`);
+          if (onDone) onDone();
+          else if (signin || r.updated) route();
+          else navigate(`/u/${encodeURIComponent(r.username)}`);
+        }
+      } catch (ex) {
+        err.textContent = ex.message; err.hidden = false;
+        btn.disabled = false; btn.textContent = label;
       }
-    } catch (ex) {
-      err.textContent = ex.message; err.hidden = false;
-      btn.disabled = false; btn.textContent = remove ? 'Remove me' : (ctx.button || 'Sign in');
-    }
-  });
+    });
+  };
+  document.addEventListener('keydown', onKey);
+  render();
 }
 
 /* ---------- groups & challenges ---------- */
@@ -750,7 +766,7 @@ function needSignIn(after, why = 'continue') {
   if (auth.username) return after();
   openModal('join', '', () => { route(); after(); }, {
     title: `Sign in to ${why}`,
-    text: 'Squads are tied to your LeetCode account, so we need to know it’s you. Enter your username and cookies — if you’re new, this also adds you to the leaderboard.',
+    text: 'Squads are tied to your account, so we need to know it’s you. Sign in, or create an account if you’re new.',
   });
 }
 
@@ -1831,7 +1847,7 @@ document.addEventListener('click', (e) => {
   const gt = e.target.closest('[data-gtab]');
   if (gt) { groupTab = gt.dataset.gtab; if (current && rerender) rerender(); return; }
   const j = e.target.closest('[data-join]');
-  if (j) { e.preventDefault(); openModal('join', '', null, { title: j.dataset.title, button: j.dataset.button }); return; }
+  if (j) { e.preventDefault(); openModal(j.dataset.mode || 'join', '', null, { title: j.dataset.title }); return; }
   const act = e.target.closest('[data-act]');
   if (!act) return;
   if (act.tagName === 'A') e.preventDefault();

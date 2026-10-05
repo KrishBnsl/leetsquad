@@ -1,7 +1,7 @@
 // The HTTP API, shared by the local server (server/index.js) and the Vercel function (api/[...path].js).
 import crypto from 'node:crypto';
 import { db } from './db.js';
-import { encrypt } from './crypto.js';
+import { encrypt, hashPassword, verifyPassword } from './crypto.js';
 import * as lc from './leetcode.js';
 import { queueSync, getSyncStatuses, RUN_WORKER } from './sync.js';
 import { dispatchWorker } from './dispatch.js';
@@ -97,6 +97,13 @@ function parseCreds(body) {
   return { username, session, csrf };
 }
 
+function parsePassword(body) {
+  const password = String(body.password ?? '');
+  if (password.length < 8) throw new HttpError(400, 'Choose a password of at least 8 characters');
+  if (password.length > 200) throw new HttpError(400, 'That password is too long');
+  return password;
+}
+
 // Proves the caller owns the LeetCode account (so nobody can add/remove someone else).
 async function verifyOwnership({ username, session, csrf }) {
   let actual;
@@ -161,15 +168,34 @@ const routes = [
 
   ['POST', /^\/api\/users$/, async (req) => {
     await rateLimit(req);
-    const creds = parseCreds(await readJson(req));
+    const body = await readJson(req);
+    const creds = parseCreds(body);
+    const password = parsePassword(body);
     const username = await verifyOwnership(creds);
     const exists = await db.get('SELECT 1 AS x FROM users WHERE username = ?', username);
-    await db.run(`INSERT INTO users (username, session_enc, csrf_enc, session_ok, added_at)
-      VALUES (?,?,?,1,?) ON CONFLICT(username) DO UPDATE SET session_enc=excluded.session_enc,
-      csrf_enc=excluded.csrf_enc, session_ok=1`,
-    username, encrypt(creds.session), encrypt(creds.csrf), Math.floor(Date.now() / 1000));
+    // Proving ownership with the cookies is also how a forgotten password gets reset.
+    await db.run(`INSERT INTO users (username, session_enc, csrf_enc, session_ok, password_hash, added_at)
+      VALUES (?,?,?,1,?,?) ON CONFLICT(username) DO UPDATE SET session_enc=excluded.session_enc,
+      csrf_enc=excluded.csrf_enc, session_ok=1, password_hash=excluded.password_hash`,
+    username, encrypt(creds.session), encrypt(creds.csrf), hashPassword(password), Math.floor(Date.now() / 1000));
     await queueSync(username);
     return { username, updated: !!exists, token: await sq.createSession(username) };
+  }],
+
+  ['POST', /^\/api\/login$/, async (req) => {
+    const ip = clientIp(req);
+    await rateLimitKey(`login-ip:${ip}`, 30, 900);
+    const body = await readJson(req);
+    const username = String(body.username || '').trim();
+    const password = String(body.password ?? '');
+    if (!USERNAME_RE.test(username) || !password || password.length > 200) throw new HttpError(401, 'Wrong username or password');
+    await rateLimitKey(`login-user:${username.toLowerCase()}`, 10, 900);
+    const u = await db.get('SELECT username, password_hash FROM users WHERE username = ?', username);
+    // Accounts created before passwords existed: the default password is the username itself (stored hashed on first use).
+    if (u && !u.password_hash && password.toLowerCase() === u.username.toLowerCase()) {
+      await db.run('UPDATE users SET password_hash = ? WHERE username = ? AND password_hash IS NULL', hashPassword(u.username.toLowerCase()), u.username);
+    } else if (!verifyPassword(password, u?.password_hash)) throw new HttpError(401, 'Wrong username or password');
+    return { username: u.username, token: await sq.createSession(u.username) };
   }],
 
   ['DELETE', /^\/api\/users\/([^/]+)$/, async (req, m) => {

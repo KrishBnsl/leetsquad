@@ -39,3 +39,17 @@ export function decrypt(blob) {
   decipher.setAuthTag(buf.subarray(12, 28));
   return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString('utf8');
 }
+
+// Account passwords: scrypt with a per-password salt. Stored as "scrypt$<salt hex>$<hash hex>".
+export function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  return `scrypt$${salt.toString('hex')}$${crypto.scryptSync(password, salt, 64).toString('hex')}`;
+}
+
+const DUMMY_HASH = hashPassword('not-a-real-password');
+// Constant-ish time: still does the scrypt work when the account (or its password) doesn't exist.
+export function verifyPassword(password, stored) {
+  const [, salt, hash] = (stored || DUMMY_HASH).split('$');
+  const got = crypto.scryptSync(password, Buffer.from(salt, 'hex'), 64);
+  return !!stored && crypto.timingSafeEqual(got, Buffer.from(hash, 'hex'));
+}
