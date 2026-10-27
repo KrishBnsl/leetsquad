@@ -14,7 +14,7 @@ const { refreshClistIfDue } = await import('../server/clist.js');
 await ready;
 
 const t0 = Date.now();
-const users = await runSyncPass({ sweep: true });
+const users = await runSyncPass({ sweep: true, all: process.env.SYNC_ALL === '1' });
 const ratings = await refreshClistIfDue();
 console.log(`[worker] synced ${users} user(s) in ${((Date.now() - t0) / 1000).toFixed(1)}s${ratings ? ' · refreshed problem ratings' : ''}`);
 process.exit(0);

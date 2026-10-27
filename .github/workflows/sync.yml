@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
+    inputs:
+      all:
+        description: 'Re-sync every user now, not just the ones that are due'
+        type: boolean
+        default: false
 
 concurrency:
   group: sync
@@ -34,4 +39,5 @@ jobs:
           CLIST_USERNAME: ${{ secrets.CLIST_USERNAME }}
           CLIST_API_KEY: ${{ secrets.CLIST_API_KEY }}
           TZ_NAME: ${{ vars.TZ_NAME }}
+          SYNC_ALL: ${{ inputs.all && '1' || '0' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

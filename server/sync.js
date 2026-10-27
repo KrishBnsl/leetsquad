@@ -54,7 +54,7 @@ function kick() {
 }
 
 // One pass over everyone who is due: explicitly queued users first, then (when `sweep`) anyone with stale data.
-export async function runSyncPass({ sweep = false } = {}) {
+export async function runSyncPass({ sweep = false, all = false } = {}) {
   if (running) return 0;
   running = true;
   let done = 0;
@@ -64,7 +64,7 @@ export async function runSyncPass({ sweep = false } = {}) {
       FROM users u LEFT JOIN sync_state s ON s.username = u.username`);
     const due = rows.filter((r) => {
       if (r.state === 'syncing' && t - (r.updated_at || 0) < STALE_SYNCING_S) return false; // someone is on it
-      return r.state === 'queued' || (sweep && t - (r.last_synced || 0) >= SYNC_EVERY_S * 0.8);
+      return r.state === 'queued' || all || (sweep && t - (r.last_synced || 0) >= SYNC_EVERY_S * 0.8);
     }).sort((a, b) => (b.state === 'queued') - (a.state === 'queued'));
     for (const r of due) {
       await syncUser(r.username, !!r.forced).catch((e) => console.error(`[sync] ${r.username}:`, e));
