@@ -110,6 +110,8 @@ async function syncUser(name, force = false) {
       try {
         await syncViaSession(user, report);
         usedSession = true;
+        // Belt and braces: the public feed is cheap and catches anything the session listing missed.
+        try { await syncViaPublic(username); } catch { /* optional */ }
       } catch (e) {
         if (e.code !== 'AUTH') throw e;
         await db.run('UPDATE users SET session_ok=0 WHERE username=?', username);
@@ -158,6 +160,7 @@ async function syncViaSession(user, report) {
       : false;
     await db.batch(subs.map((s) => [insertSql, Number(s.id), user.username, s.titleSlug, s.title, s.statusDisplay, s.lang, Number(s.timestamp)]));
     fetched += subs.length;
+    if (page === 0) console.log(`[sync] ${user.username}: session page 0 -> ${subs.length} submissions, newest ${subs[0] ? new Date(Number(subs[0].timestamp) * 1000).toISOString() : 'none'}, hasNext=${r.hasNext}`);
     report(`Pulled ${fetched} submissions…`);
     if (!r.hasNext || !subs.length) { finished = true; break; }
     if (hitKnown && user.full_synced) { finished = true; break; }
