@@ -290,7 +290,11 @@ function renderHome(data) {
       <p class="muted">Be the first to hop on the leaderboard.</p><button class="btn btn-pink" data-join data-mode="signup">${icon('plus')} Join LeetSquad</button></div>`;
     return;
   }
-  app.innerHTML = hero + boardHtml(data.users, data.feed, { syncing: isSyncing(data.users) });
+  const stale = data.users.filter((u) => !u.sessionOk);
+  const names = stale.slice(0, 6).map((u) => `<a href="/u/${encodeURIComponent(u.username)}" data-link><b>@${esc(u.username)}</b></a>`).join(', ') + (stale.length > 6 ? ` +${stale.length - 6} more` : '');
+  const refresh = stale.length
+    ? `<div class="notice warn refresh-banner">${icon('alert')} <span><b>LeetCode logins have expired</b> for ${names}. Their full history, totals and languages stay frozen until they refresh the cookie (latest solves still count). <b>Is that you?</b></span> <button class="btn btn-pink btn-small" data-join data-mode="signup">${icon('refresh')} Refresh my cookie</button></div>` : '';
+  app.innerHTML = hero + refresh + boardHtml(data.users, data.feed, { syncing: isSyncing(data.users) });
 }
 
 async function home() {
