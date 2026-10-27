@@ -160,7 +160,8 @@ async function syncViaSession(user, report) {
       : false;
     await db.batch(subs.map((s) => [insertSql, Number(s.id), user.username, s.titleSlug, s.title, s.statusDisplay, s.lang, Number(s.timestamp)]));
     fetched += subs.length;
-    if (page === 0 && r.submissions == null) { console.warn(`[sync] ${user.username}: LeetCode's session submission list came back empty (endpoint change or expired login) — relying on the public feed`); return; }
+    // LeetCode answers an expired login with null (no error), same as for an anonymous request.
+    if (r.submissions == null) throw new lc.AuthError();
     if (page === 0) console.log(`[sync] ${user.username}: session page 0 -> ${subs.length} submissions, newest ${subs[0] ? new Date(Number(subs[0].timestamp) * 1000).toISOString() : 'none'}, hasNext=${r.hasNext}`);
     report(`Pulled ${fetched} submissions…`);
     if (!r.hasNext || !subs.length) { finished = true; break; }
